@@ -1,5 +1,5 @@
 -- =============================================
--- mold.column_exists
+-- $(SchemaName).column_exists
 -- =============================================
 -- Returns 1 if the specified column exists on a user table, 0 otherwise.
 --
@@ -9,9 +9,19 @@
 --   'Db.Schema.Table.Column'       -> Db.Schema.Table.Column
 --   '[sales].[My.Table].[My.Col]'  -> sales.[My.Table].[My.Col]
 --
--- Temp tables (#x, ##x) are NOT supported: UDFs cannot access them.
+-- Temp tables:
+--    Global templ tables (##x) are supported.
+--    Local temp tables (#x): are NOT FULLY supported.
+--      (Only supported if temp table is create in the current execution context).
+--
+-- The LAST dot separates the column from the object; everything
+-- before it is the table name (which may itself contain dots).
+--
+-- Only user tables are recognized; views and synonyms return 0.
+--
+-- See docs/column_exists.md for full documentation.
 -- =============================================
-CREATE OR ALTER FUNCTION mold.column_exists
+CREATE OR ALTER FUNCTION $(SchemaName).column_exists
 (
     @name nvarchar(776)
 )

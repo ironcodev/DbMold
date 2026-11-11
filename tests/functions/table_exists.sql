@@ -100,11 +100,11 @@ BEGIN
 END
 
 -- ---------- Teardown ----------
-DROP TABLE dbo.__mold_test_tbl;
-DROP TABLE __mold_test_schema.__mold_test_tbl2;
-DROP TABLE #__mold_test_tmp;
-DROP TABLE ##__mold_test_gtmp;
-DROP SCHEMA __mold_test_schema;
+DROP TABLE IF EXISTS dbo.__mold_test_tbl;
+DROP TABLE IF EXISTS __mold_test_schema.__mold_test_tbl2;
+DROP TABLE IF EXISTS #__mold_test_tmp;
+DROP TABLE IF EXISTS ##__mold_test_gtmp;
+DROP SCHEMA IF EXISTS __mold_test_schema;
 
 -- ---------- Report ----------
 IF @failures = 0

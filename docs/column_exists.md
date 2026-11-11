@@ -1,4 +1,4 @@
-# `mold.column_exists`
+# `column_exists`
 
 Returns whether a column exists on a user table.
 
@@ -7,7 +7,7 @@ Returns whether a column exists on a user table.
 ## Signature
 
 ```sql
-CREATE OR ALTER FUNCTION mold.column_exists
+CREATE OR ALTER FUNCTION column_exists
 (
     @name nvarchar(776)
 )
@@ -46,10 +46,10 @@ Bracketed identifiers work for both the object and the column part. `[sales].[My
 ## Examples
 
 ```sql
-IF mold.column_exists('Products.Id') = 1
+IF column_exists('Products.Id') = 1
     PRINT 'Column exists.';
 
-IF mold.column_exists('sales.Products.DiscountPrice') = 1
+IF column_exists('sales.Products.DiscountPrice') = 1
     PRINT 'Column exists.';
 ```
 
@@ -85,6 +85,6 @@ Pure read. Safe to call any number of times.
 
 ## Related
 
-- [`mold.table_exists`](table_exists.md) — check a table
-- [`mold.default_exists`](default_exists.md) — check a default constraint
-- [`mold.create_column`](create_column.md) — create or sync a column
+- [`table_exists`](table_exists.md) — check a table
+- [`default_exists`](default_exists.md) — check a default constraint
+- [`create_column`](create_column.md) — create or sync a column

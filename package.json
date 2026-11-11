@@ -1,0 +1,28 @@
+{
+  "name": "dbmold",
+  "version": "1.0.0",
+  "description": "Mold your SQL Server schema — idempotent, forward-only, dependency-free.",
+  "main": "build.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "test": "node scripts/test.js",
+    "install:mold": "node scripts/install.js mold",
+    "install:x": "node scripts/install.js m"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ironcodev/DbMold.git"
+  },
+  "keywords": [],
+  "author": "Ironcode",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ironcodev/DbMold/issues"
+  },
+  "homepage": "https://github.com/ironcodev/DbMold#readme"
+}

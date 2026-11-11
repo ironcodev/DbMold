@@ -4,7 +4,7 @@
 
 DbMold is a tiny set of T-SQL stored procedures and functions that make
 schema changes **safe to run multiple times**. No external tools, no
-libraries, no SQLCLR — just `EXEC mold.create_column @spec = N'{...}'`.
+libraries, no SQLCLR — just `EXEC <schema>.create_column @spec = N'{...}'`.
 
 It is designed for database developers who write deployment scripts and
 want to stop re-implementing the same "does this object exist? does it have
@@ -28,7 +28,7 @@ painful. To "just add a column", you must:
 DbMold collapses all of this into a single call:
 
 ```sql
-EXEC mold.create_column @spec = N'{
+EXEC <schema>.create_column @spec = N'{
   "table": "sales.Products",
   "column": "DiscountPrice",
   "type": "int",
@@ -42,6 +42,21 @@ get an error because "the column already exists".
 
 ---
 
+## Installation
+
+DbMold ships with two install scripts:
+
+- `dist/install-mold.sql` — creates the `mold` schema (descriptive name).
+- `dist/install-m.sql` — creates the `m` schema (shorthand for `mold`,
+  the first letter of the project name).
+
+Both expose the same API; only the schema name differs. Pick the one
+that fits your preferences:
+
+- Use `mold` if you value readability and brand recognition.
+- Use `m` if you prefer a short, memorable prefix — especially useful
+  when the package is used heavily and every keystroke counts.
+
 ## Features
 
 - **Idempotent**: safe to run repeatedly; no-op when nothing changes.
@@ -51,37 +66,13 @@ get an error because "the column already exists".
 - **JSON specs**: one parameter per procedure, easy to build from any language.
 - **Safe**: all identifiers are validated and quoted with `QUOTENAME`.
 
----
+## Placeholder
 
-## Installation
+All scripts use `$(SchemaName)`. Replace it with `mold` or `m` before running,
+or use the provided build scripts:
 
-DbMold is a set of SQL scripts. Deploy them **once** into the target
-database (any schema-aware environment) before running your migrations.
-
-```sql
--- 1. Create the schema
-CREATE SCHEMA mold;
-GO
-
--- 2. Create the objects (run in this order)
-:r .\src\functions\table_exists.sql
-:r .\src\functions\column_exists.sql
-:r .\src\functions\default_exists.sql
-:r .\src\functions\get_default.sql
-:r .\src\functions\get_column_info.sql
-
-:r .\src\procedures\create_column.sql
-:r .\src\procedures\drop_column.sql
-:r .\src\procedures\create_foreign_key.sql
-:r .\src\procedures\drop_foreign_key.sql
-:r .\src\procedures\create_table.sql
-:r .\src\procedures\drop_table.sql
-```
-
-> Tip: keep the install script in your repo and run it as a bootstrap step
-> of your deployment pipeline.
-
----
+- `npm run build` → generates `dist/install-<schema>.sql` and `dist/install-x.sql`
+- `npm test` → runs tests against both schemas
 
 ## API
 
@@ -89,30 +80,30 @@ All objects live in the `mold` schema. Naming follows a simple rule:
 
 | Kind            | Pattern          | Example                  |
 |-----------------|------------------|--------------------------|
-| Procedure       | `verb_noun`      | `mold.create_column`     |
-| Predicate (UDF) | `noun_verb`      | `mold.column_exists`     |
-| Getter (UDF)    | `verb_noun`      | `mold.get_default`       |
+| Procedure       | `verb_noun`      | `<schema>.create_column`     |
+| Predicate (UDF) | `noun_verb`      | `<schema>.column_exists`     |
+| Getter (UDF)    | `verb_noun`      | `<schema>.get_default`       |
 
 ### Procedures (idempotent)
 
 | Object                          | Purpose                                           |
 |---------------------------------|---------------------------------------------------|
-| `mold.create_table`             | Creates or syncs a table with its columns.          |
-| `mold.create_column`            | Creates or syncs a column (type, nullability, default). |
-| `mold.create_foreign_key`       | Creates or syncs a foreign key.                     |
-| `mold.drop_table`               | Drops a table if it exists.                        |
-| `mold.drop_column`              | Drops a column if it exists.                       |
-| `mold.drop_foreign_key`         | Drops a foreign key if it exists.                  |
+| `<schema>.create_table`             | Creates or syncs a table with its columns.          |
+| `<schema>.create_column`            | Creates or syncs a column (type, nullability, default). |
+| `<schema>.create_foreign_key`       | Creates or syncs a foreign key.                     |
+| `<schema>.drop_table`               | Drops a table if it exists.                        |
+| `<schema>.drop_column`              | Drops a column if it exists.                       |
+| `<schema>.drop_foreign_key`         | Drops a foreign key if it exists.                  |
 
 ### Functions
 
 | Object                          | Returns | Purpose                            |
 |---------------------------------|---------|------------------------------------|
-| `mold.table_exists`             | `bit`   | Does the table (or temp table) exist? |
-| `mold.column_exists`            | `bit`   | Does the column exist?             |
-| `mold.default_exists`           | `bit`   | Does the column have this default? |
-| `mold.get_default`              | `nvarchar(max)` | Current default of a column. |
-| `mold.get_column_info`          | `table` | Type, nullability, default, etc.   |
+| `<schema>.table_exists`             | `bit`   | Does the table (or temp table) exist? |
+| `<schema>.column_exists`            | `bit`   | Does the column exist?             |
+| `<schema>.default_exists`           | `bit`   | Does the column have this default? |
+| `<schema>.get_default`              | `nvarchar(max)` | Current default of a column. |
+| `<schema>.get_column_info`          | `table` | Type, nullability, default, etc.   |
 
 ---
 
@@ -121,7 +112,7 @@ All objects live in the `mold` schema. Naming follows a simple rule:
 ### Add a column (idempotent)
 
 ```sql
-EXEC mold.create_column @spec = N'{
+EXEC <schema>.create_column @spec = N'{
   "table": "sales.Products",
   "column": "DiscountPrice",
   "type": "int",
@@ -133,7 +124,7 @@ EXEC mold.create_column @spec = N'{
 ### Create a table
 
 ```sql
-EXEC mold.create_table @spec = N'{
+EXEC <schema>.create_table @spec = N'{
   "name": "sales.Docs",
   "columns": [
     { "name": "Id", "type": "int", "nullable": false, "identity": true },
@@ -146,7 +137,7 @@ EXEC mold.create_table @spec = N'{
 ### Create a foreign key
 
 ```sql
-EXEC mold.create_foreign_key @spec = N'{
+EXEC <schema>.create_foreign_key @spec = N'{
   "parent":     "sales.OrderDetails.OrderId",
   "child":      "sales.Orders.Id",
   "deleteRule": "cascade",
@@ -157,18 +148,18 @@ EXEC mold.create_foreign_key @spec = N'{
 ### Check existence
 
 ```sql
-IF mold.table_exists('sales.Products') = 1
+IF <schema>.table_exists('sales.Products') = 1
     PRINT 'Table exists.';
 
-IF mold.column_exists('sales.Products.IsShipped') = 1
+IF <schema>.column_exists('sales.Products.IsShipped') = 1
     PRINT 'Column exists.';
 ```
 
 ### Drop (idempotent)
 
 ```sql
-EXEC mold.drop_column 'sales.Products.IsShipped';
-EXEC mold.drop_table  'tmp1';
+EXEC <schema>.drop_column 'sales.Products.IsShipped';
+EXEC <schema>.drop_table  'tmp1';
 ```
 
 ---

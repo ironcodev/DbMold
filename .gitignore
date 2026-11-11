@@ -1,3 +1,7 @@
+connection.dev.json
+*.local.json
+node_modules/
+
 # SQL Server / SSMS
 *.bak
 *.trn
