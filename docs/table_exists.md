@@ -1,5 +1,7 @@
 # `mold.table_exists`
 
+> Use `m` for schema if you used `Install-m.sql`.
+
 Returns whether a table exists in the current database (or in `tempdb`
 for temporary tables).
 

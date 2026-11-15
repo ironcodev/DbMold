@@ -1,0 +1,16 @@
+{
+  "connection": {
+    "server": "localhost\\i2k22",
+    "trustedConnection": true,
+    "encrypt": false,
+    "trustServerCertificate": true
+  },
+  "scripts": {
+    "warmUp": "./dist/install-mold.sql"
+  },
+  "sqlCmdOptions": {
+    "vars": {
+      "SchemaName": "mold"
+    }
+  }
+}

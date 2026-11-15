@@ -1,0 +1,4 @@
+# DbMold install order
+00_schema.sql
+functions/table_exists.sql
+functions/column_exists.sql

@@ -1,0 +1,11 @@
+{
+  "server": "localhost",
+  "database": "MyApp",
+  "user": "sa",
+  "password": "YourStrong!Passw0rd",
+  "options": {
+    "trustServerCertificate": true,
+    "encrypt": false
+  },
+  "schemas": ["mold", "m"]
+}

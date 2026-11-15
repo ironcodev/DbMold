@@ -1,0 +1,8 @@
+{
+  "server": "localhost",
+  "database": "DbMoldTest",
+  "user": "",
+  "password": "",
+  "trustServerCertificate": true,
+  "encrypt": false
+}

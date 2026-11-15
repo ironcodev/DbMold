@@ -1,0 +1,57 @@
+{
+  "name": "dbmold",
+  "version": "1.0.0",
+  "description": "Mold your SQL Server schema — idempotent, forward-only, dependency-free.",
+  "main": "build.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "bin": {
+    "dbmold": "bin/dbmold.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "build": "node build.js",
+    "pretest:m": "node build.js",
+    "pretest:mold": "node build.js",
+    "test:m": "sstr run -c sstr.config.m.json",
+    "test:mold": "sstr run -c sstr.config.mold.json",
+    "test": "npm run test:mold && npm run test:m",
+    "install:mold": "node scripts/install.js mold",
+    "install:x": "node scripts/install.js m"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ironcodev/DbMold.git"
+  },
+  "keywords": [
+    "dbmold",
+    "sql server",
+    "schema"
+  ],
+  "files": [
+    "bin/",
+    "lib/",
+    "dist/",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "dbmold.config.example.json"
+  ],
+  "author": "Ironcode",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ironcodev/DbMold/issues"
+  },
+  "homepage": "https://github.com/ironcodev/DbMold#readme",
+  "devDependencies": {
+    "sql-server-test-runner": "^1.0.1"
+  },
+  "dependencies": {
+    "mssql": "^12.7.14"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

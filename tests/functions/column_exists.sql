@@ -1,179 +1,221 @@
 -- =============================================
--- Tests for mold.column_exists
+-- Tests for $(SchemaName).column_exists
 -- =============================================
-SET NOCOUNT ON;
 
-DECLARE @failures int = 0;
-
--- ---------- Setup ----------
-IF OBJECT_ID(N'dbo.__mold_test_tbl', N'U') IS NOT NULL
-    DROP TABLE dbo.__mold_test_tbl;
-CREATE TABLE dbo.__mold_test_tbl
-(
-    Id int NOT NULL,
-    Name nvarchar(100) NULL
-);
-
-IF SCHEMA_ID(N'__mold_test_schema') IS NULL
-    EXEC(N'CREATE SCHEMA __mold_test_schema');
-IF OBJECT_ID(N'__mold_test_schema.__mold_test_tbl2', N'U') IS NOT NULL
-    DROP TABLE __mold_test_schema.__mold_test_tbl2;
-EXEC(N'CREATE TABLE __mold_test_schema.__mold_test_tbl2 (Id int, Code nvarchar(50))');
-
-IF OBJECT_ID(N'tempdb..#__mold_test_tmp', N'U') IS NOT NULL
-    DROP TABLE #__mold_test_tmp;
-CREATE TABLE #__mold_test_tmp (Id int, Value int);
-
-IF OBJECT_ID(N'tempdb..##__mold_test_gtmp', N'U') IS NOT NULL
-    DROP TABLE ##__mold_test_gtmp;
-CREATE TABLE ##__mold_test_gtmp (Id int, Label nvarchar(20));
-
-IF OBJECT_ID(N'dbo.__mold_test_view', N'V') IS NOT NULL
-    DROP VIEW dbo.__mold_test_view;
-EXEC(N'CREATE VIEW dbo.__mold_test_view AS SELECT 1 AS Id');
-
--- ---------- Assertions ----------
-
--- 1. Non-existent column on existing table
-IF mold.column_exists(N'dbo.__mold_test_tbl.Missing') <> 0
+-- 1. Existing column, fully qualified
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_1_for_existing_column
+AS
 BEGIN
-    PRINT 'FAIL [1]: non-existent column should return 0';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
+    CREATE TABLE dbo.__sstr_test_tbl (Id int, Name nvarchar(100));
 
--- 2. Existing column, fully qualified
-IF mold.column_exists(N'dbo.__mold_test_tbl.Id') <> 1
-BEGIN
-    PRINT 'FAIL [2]: dbo.__mold_test_tbl.Id should exist';
-    SET @failures += 1;
-END
+    DECLARE @result bit = $(SchemaName).column_exists('dbo.__sstr_test_tbl.Id');
+    EXEC Assert.Equals @result, 1;
 
--- 3. Existing column, unqualified table (default schema)
-IF mold.column_exists(N'__mold_test_tbl.Id') <> 1
-BEGIN
-    PRINT 'FAIL [3]: unqualified table should resolve to dbo';
-    SET @failures += 1;
+    DROP TABLE dbo.__sstr_test_tbl;
 END
+GO
 
--- 4. Second column of same table
-IF mold.column_exists(N'dbo.__mold_test_tbl.Name') <> 1
+-- 2. Unqualified table name resolves to dbo
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_resolve_unqualified_table_to_dbo
+AS
 BEGIN
-    PRINT 'FAIL [4]: dbo.__mold_test_tbl.Name should exist';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
+    CREATE TABLE dbo.__sstr_test_tbl (Id int);
 
--- 5. Custom schema, existing column
-IF mold.column_exists(N'__mold_test_schema.__mold_test_tbl2.Code') <> 1
-BEGIN
-    PRINT 'FAIL [5]: custom schema column should exist';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists('__sstr_test_tbl.Id');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE dbo.__sstr_test_tbl;
 END
+GO
+
+-- 3. Second column of the same table
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_find_second_column
+AS
+BEGIN
+    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
+    CREATE TABLE dbo.__sstr_test_tbl (Id int, Name nvarchar(100));
+
+    DECLARE @result bit = $(SchemaName).column_exists('dbo.__sstr_test_tbl.Name');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE dbo.__sstr_test_tbl;
+END
+GO
+
+-- 4. Missing column
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_missing_column
+AS
+BEGIN
+    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
+    CREATE TABLE dbo.__sstr_test_tbl (Id int);
+
+    DECLARE @result bit = $(SchemaName).column_exists('dbo.__sstr_test_tbl.Missing');
+    EXEC Assert.Equals @result, 0;
+
+    DROP TABLE dbo.__sstr_test_tbl;
+END
+GO
+
+-- 5. Custom schema
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_find_column_in_custom_schema
+AS
+BEGIN
+    IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');
+    IF OBJECT_ID('__sstr_schema.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE __sstr_schema.__sstr_test_tbl;
+    EXEC('CREATE TABLE __sstr_schema.__sstr_test_tbl (Id int, Code nvarchar(50))');
+
+    DECLARE @result bit = $(SchemaName).column_exists('__sstr_schema.__sstr_test_tbl.Code');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE __sstr_schema.__sstr_test_tbl;
+END
+GO
 
 -- 6. Custom schema, missing column
-IF mold.column_exists(N'__mold_test_schema.__mold_test_tbl2.Missing') <> 0
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_missing_column_in_custom_schema
+AS
 BEGIN
-    PRINT 'FAIL [6]: missing column should return 0';
-    SET @failures += 1;
-END
+    IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');
+    IF OBJECT_ID('__sstr_schema.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE __sstr_schema.__sstr_test_tbl;
+    EXEC('CREATE TABLE __sstr_schema.__sstr_test_tbl (Id int)');
 
--- 7. Local temp table is NOT supported (UDF limitation)
-IF mold.column_exists(N'#__mold_test_tmp.Id') <> 0
+    DECLARE @result bit = $(SchemaName).column_exists('__sstr_schema.__sstr_test_tbl.Missing');
+    EXEC Assert.Equals @result, 0;
+
+    DROP TABLE __sstr_schema.__sstr_test_tbl;
+END
+GO
+
+-- 7. Local temp table is NOT supported by the UDF
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_local_temp_table
+AS
 BEGIN
-    PRINT 'FAIL [7]: local temp tables should return 0 (UDF limitation)';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('tempdb..#__sstr_tmp', 'U') IS NOT NULL DROP TABLE #__sstr_tmp;
+    CREATE TABLE #__sstr_tmp (Id int);
 
--- 8. Same for temp tables with a non-existent column
-IF mold.column_exists(N'#__mold_test_tmp.Missing') <> 0
+    DECLARE @result bit = $(SchemaName).column_exists('#__sstr_tmp.Id');
+    EXEC Assert.Equals @result, 0;
+
+    DROP TABLE #__sstr_tmp;
+END
+GO
+
+-- 8. Global temp table is NOT supported by the UDF
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_global_temp_table
+AS
 BEGIN
-    PRINT 'FAIL [8]: local temp table should return 0';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('tempdb..##__sstr_gtmp', 'U') IS NOT NULL DROP TABLE ##__sstr_gtmp;
+    CREATE TABLE ##__sstr_gtmp (Id int);
 
--- 9. Global temp table is NOT supported either
-IF mold.column_exists(N'##__mold_test_gtmp.Label') <> 0
+    DECLARE @result bit = $(SchemaName).column_exists('##__sstr_gtmp.Id');
+    EXEC Assert.Equals @result, 0;
+
+    DROP TABLE ##__sstr_gtmp;
+END
+GO
+
+-- 9. Quoted names
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_handle_quoted_names
+AS
 BEGIN
-    PRINT 'FAIL [9]: global temp tables should return 0 (UDF limitation)';
-    SET @failures += 1;
-END
+    IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');
+    IF OBJECT_ID('__sstr_schema.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE __sstr_schema.__sstr_test_tbl;
+    EXEC('CREATE TABLE __sstr_schema.__sstr_test_tbl (Id int, Code nvarchar(50))');
 
--- 10. Quoted names, existing column
-IF mold.column_exists(N'[__mold_test_schema].[__mold_test_tbl2].[Code]') <> 1
+    DECLARE @result bit = $(SchemaName).column_exists('[__sstr_schema].[__sstr_test_tbl].[Code]');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE __sstr_schema.__sstr_test_tbl;
+END
+GO
+
+-- 10. NULL input
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_null_input
+AS
 BEGIN
-    PRINT 'FAIL [10]: quoted names should resolve';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists(NULL);
+    EXEC Assert.Equals @result, 0;
 END
+GO
 
--- 11. NULL input
-IF mold.column_exists(NULL) <> 0
+-- 11. Empty input
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_empty_input
+AS
 BEGIN
-    PRINT 'FAIL [11]: NULL should return 0';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists('');
+    EXEC Assert.Equals @result, 0;
 END
+GO
 
--- 12. Empty input
-IF mold.column_exists(N'') <> 0
+-- 12. Whitespace-only input
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_whitespace_input
+AS
 BEGIN
-    PRINT 'FAIL [12]: empty string should return 0';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists('   ');
+    EXEC Assert.Equals @result, 0;
 END
+GO
 
--- 13. Whitespace-only input
-IF mold.column_exists(N'   ') <> 0
+-- 13. No dot (cannot identify column)
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_name_without_dot
+AS
 BEGIN
-    PRINT 'FAIL [13]: whitespace-only should return 0';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists('__sstr_test_tbl');
+    EXEC Assert.Equals @result, 0;
 END
+GO
 
--- 14. No dot (cannot identify column)
-IF mold.column_exists(N'__mold_test_tbl') <> 0
+-- 14. Object does not exist
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_missing_table
+AS
 BEGIN
-    PRINT 'FAIL [14]: name without dot should return 0';
-    SET @failures += 1;
+    DECLARE @result bit = $(SchemaName).column_exists('dbo.__sstr_no_such_table_xyz.Id');
+    EXEC Assert.Equals @result, 0;
 END
+GO
 
--- 15. Object does not exist
-IF mold.column_exists(N'dbo.__mold_no_such_table.Id') <> 0
+-- 15. A view is not a table
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_return_0_for_view
+AS
 BEGIN
-    PRINT 'FAIL [15]: non-existent table should return 0';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('dbo.__sstr_test_view', 'V') IS NOT NULL DROP VIEW dbo.__sstr_test_view;
+    EXEC('CREATE VIEW dbo.__sstr_test_view AS SELECT 1 AS Id');
 
--- 16. Object is a view, not a table
-IF mold.column_exists(N'dbo.__mold_test_view.Id') <> 0
+    DECLARE @result bit = $(SchemaName).column_exists('dbo.__sstr_test_view.Id');
+    EXEC Assert.Equals @result, 0;
+
+    DROP VIEW dbo.__sstr_test_view;
+END
+GO
+
+-- 16. Leading/trailing whitespace is trimmed
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_trim_whitespace
+AS
 BEGIN
-    PRINT 'FAIL [16]: view should not count as a table';
-    SET @failures += 1;
-END
+    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
+    CREATE TABLE dbo.__sstr_test_tbl (Id int);
 
--- 17. Leading/trailing whitespace around the full name
-IF mold.column_exists(N'  dbo.__mold_test_tbl.Id  ') <> 1
+    DECLARE @result bit = $(SchemaName).column_exists('  dbo.__sstr_test_tbl.Id  ');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE dbo.__sstr_test_tbl;
+END
+GO
+
+-- 17. Table name contains a quoted dot (split by LAST dot)
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_split_by_last_dot
+AS
 BEGIN
-    PRINT 'FAIL [17]: trimmed name should resolve';
-    SET @failures += 1;
+    IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');
+    IF OBJECT_ID('__sstr_schema.[__sstr.dotted.tbl]', 'U') IS NOT NULL
+        DROP TABLE __sstr_schema.[__sstr.dotted.tbl];
+    EXEC('CREATE TABLE __sstr_schema.[__sstr.dotted.tbl] (Id int)');
+
+    DECLARE @result bit = $(SchemaName).column_exists('[__sstr_schema].[__sstr.dotted.tbl].[Id]');
+    EXEC Assert.Equals @result, 1;
+
+    DROP TABLE __sstr_schema.[__sstr.dotted.tbl];
 END
-
--- 18. Table part with quoted dot in name
-IF OBJECT_ID(N'__mold_test_schema.[__mold_dotted.tbl]', N'U') IS NULL
-    EXEC(N'CREATE TABLE __mold_test_schema.[__mold_dotted.tbl] (Id int)');
-IF mold.column_exists(N'[__mold_test_schema].[__mold_dotted.tbl].[Id]') <> 1
-BEGIN
-    PRINT 'FAIL [18]: quoted dotted table name should resolve';
-    SET @failures += 1;
-END
-
--- ---------- Teardown ----------
-DROP TABLE dbo.__mold_test_tbl;
-DROP TABLE __mold_test_schema.__mold_test_tbl2;
-DROP TABLE #__mold_test_tmp;
-DROP TABLE ##__mold_test_gtmp;
-DROP VIEW  dbo.__mold_test_view;
-IF OBJECT_ID(N'__mold_test_schema.[__mold_dotted.tbl]', N'U') IS NOT NULL
-    DROP TABLE __mold_test_schema.[__mold_dotted.tbl];
-DROP SCHEMA __mold_test_schema;
-
--- ---------- Report ----------
-IF @failures = 0
-    PRINT 'All column_exists tests passed.';
-ELSE
-    PRINT CONCAT(@failures, ' column_exists test(s) FAILED.');
+GO
