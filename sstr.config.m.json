@@ -1,6 +1,6 @@
 {
   "connection": {
-    "server": "localhost\\i2k22",
+    "server": "localhost",
     "trustedConnection": true,
     "encrypt": false,
     "trustServerCertificate": true

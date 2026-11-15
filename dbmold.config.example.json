@@ -3,9 +3,8 @@
   "database": "MyApp",
   "user": "sa",
   "password": "YourStrong!Passw0rd",
-  "options": {
-    "trustServerCertificate": true,
-    "encrypt": false
-  },
+  "trustedConnection": true,
+  "trustServerCertificate": true,
+  "encrypt": false,
   "schemas": ["mold", "m"]
 }
