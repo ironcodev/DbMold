@@ -5,6 +5,7 @@
     "encrypt": false,
     "trustServerCertificate": true
   },
+  "testDb": "mydb",
   "scripts": {
     "warmUp": "./dist/install-mold.sql",
     "coolDown": "./dist/cooldown.sql"

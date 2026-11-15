@@ -5,6 +5,7 @@
     "encrypt": false,
     "trustServerCertificate": true
   },
+  "testDb": "mydb",
   "scripts": {
     "warmUp": "./dist/install-m.sql",
     "coolDown": "./dist/cooldown.sql"

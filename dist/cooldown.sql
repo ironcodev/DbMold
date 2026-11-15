@@ -8,3 +8,5 @@ DROP PROCEDURE IF EXISTS dbo.column_default_setup;
 DROP PROCEDURE IF EXISTS dbo.column_default_teardown;
 DROP PROCEDURE IF EXISTS dbo.column_info_setup;
 DROP PROCEDURE IF EXISTS dbo.column_info_teardown;
+DROP PROCEDURE IF EXISTS dbo.column_api_setup;
+DROP PROCEDURE IF EXISTS dbo.column_api_teardown;

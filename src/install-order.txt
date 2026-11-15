@@ -11,6 +11,8 @@ functions/default_exists.sql
 functions/foreign_key_exists.sql
 functions/column_default.sql
 functions/column_info.sql
+functions/column_api.sql
+functions/column_type.sql
 
 functions/table_exists.sql
 functions/column_exists.sql
