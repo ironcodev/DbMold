@@ -1,5 +1,5 @@
 -- =============================================
--- $(SchemaName).get_default
+-- $(SchemaName).column_default
 -- =============================================
 -- Returns the default-constraint definition for a column, or NULL if
 -- the column has no default constraint (or the table/column does not
@@ -16,7 +16,7 @@
 --   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
 --   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
 -- =============================================
-CREATE OR ALTER FUNCTION $(SchemaName).get_default
+CREATE OR ALTER FUNCTION $(SchemaName).column_default
 (
     @name nvarchar(1000)
 )

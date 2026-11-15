@@ -483,10 +483,10 @@ END;
 GO
 
 -- ---------------------------------------------
--- functions/get_default.sql
+-- functions/column_default.sql
 -- ---------------------------------------------
 -- =============================================
--- m.get_default
+-- m.column_default
 -- =============================================
 -- Returns the default-constraint definition for a column, or NULL if
 -- the column has no default constraint (or the table/column does not
@@ -503,7 +503,7 @@ GO
 --   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
 --   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
 -- =============================================
-CREATE OR ALTER FUNCTION m.get_default
+CREATE OR ALTER FUNCTION m.column_default
 (
     @name nvarchar(1000)
 )
