@@ -6,7 +6,8 @@
     "trustServerCertificate": true
   },
   "scripts": {
-    "warmUp": "./dist/install-mold.sql"
+    "warmUp": "./dist/install-mold.sql",
+    "coolDown": "./dist/cooldown.sql"
   },
   "sqlCmdOptions": {
     "vars": {

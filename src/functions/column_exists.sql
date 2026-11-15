@@ -3,27 +3,17 @@
 -- =============================================
 -- Returns 1 if the specified column exists on a user table, 0 otherwise.
 --
--- Supported input formats:
---   'Table.Column'                 -> dbo.Table.Column
---   'Schema.Table.Column'          -> Schema.Table.Column
---   'Db.Schema.Table.Column'       -> Db.Schema.Table.Column
---   '[sales].[My.Table].[My.Col]'  -> sales.[My.Table].[My.Col]
+-- Input formats:
+--   'Table.Column'                  -> dbo.Table.Column
+--   'Schema.Table.Column'           -> Schema.Table.Column
+--   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
+--   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
 --
--- Temp tables:
---    Global templ tables (##x) are supported.
---    Local temp tables (#x): are NOT FULLY supported.
---      (Only supported if temp table is create in the current execution context).
---
--- The LAST dot separates the column from the object; everything
--- before it is the table name (which may itself contain dots).
---
--- Only user tables are recognized; views and synonyms return 0.
---
--- See docs/column_exists.md for full documentation.
+-- Temp tables are NOT supported (UDF limitation).
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_exists
 (
-    @name nvarchar(776)
+    @name nvarchar(1000)
 )
 RETURNS bit
 AS
@@ -31,38 +21,30 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN 0;
 
-    DECLARE @normalized nvarchar(776) = LTRIM(RTRIM(@name));
+    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
 
-    DECLARE @last_dot int = CHARINDEX(N'.', REVERSE(@normalized));
-    IF @last_dot = 0
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table],
+        @column = p.[column]
+    FROM $(SchemaName).parse_column_name(@name) p;
+
+    -- For temp tables, parse_column_name returns schema = NULL and
+    -- table = '#...'. Reject them (UDFs cannot access temp tables).
+    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
         RETURN 0;
 
-    DECLARE @object_part nvarchar(776) =
-        LEFT(@normalized, LEN(@normalized) - @last_dot);
-    DECLARE @column_part nvarchar(776) =
-        RIGHT(@normalized, @last_dot - 1);
-
-    IF @column_part = N'' OR @object_part = N''
+    IF LEFT(@table, 1) = N'#'
         RETURN 0;
 
-    -- Temp tables are out of scope for a UDF.
-    IF LEFT(@object_part, 1) = N'#'
+    DECLARE @full_name nvarchar(1000) =
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+
+    IF OBJECT_ID(@full_name, N'U') IS NULL
         RETURN 0;
 
-    DECLARE @object_name nvarchar(776) = @object_part;
-    IF CHARINDEX(N'.', @object_name) = 0
-        SET @object_name = N'dbo.' + QUOTENAME(@object_name);
-
-    DECLARE @column_name sysname = @column_part;
-    IF LEN(@column_name) >= 2
-       AND LEFT(@column_name, 1) = N'['
-       AND RIGHT(@column_name, 1) = N']'
-        SET @column_name = SUBSTRING(@column_name, 2, LEN(@column_name) - 2);
-
-    IF OBJECT_ID(@object_name, N'U') IS NULL
-        RETURN 0;
-
-    IF COL_LENGTH(@object_name, @column_name) IS NULL
+    IF COL_LENGTH(@full_name, @column) IS NULL
         RETURN 0;
 
     RETURN 1;

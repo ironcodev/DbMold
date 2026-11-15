@@ -3,28 +3,20 @@
 -- =============================================
 -- Returns 1 if the specified table exists, 0 otherwise.
 --
--- Supported input formats:
---   'Products'                  -> dbo.Products
---   'sales.Products'            -> sales.Products
---   'db.sales.Products'         -> db.sales.Products
---   '#tmp1'                     -> tempdb..#tmp1 (local temp table)
---   '##tmp2'                    -> tempdb..##tmp2 (global temp table)
---   '[sales].[My.Table]'        -> sales.[My.Table]
+-- Input formats:
+--   'Products'             -> dbo.Products
+--   'sales.Products'       -> sales.Products
+--   'db.sales.Products'    -> db.sales.Products
+--   '#tmp1'                -> tempdb..#tmp1
+--   '##tmp2'               -> tempdb..##tmp2
+--   '[sales].[My.Table]'   -> sales.[My.Table]
 --
--- Temp tables:
---    Global templ tables (##x) are supported.
---    Local temp tables (#x): are NOT FULLY supported.
---      (Only supported if temp table is create in the current execution context).
---
--- Unqualified names resolve to dbo (not the caller's DEFAULT_SCHEMA).
--- Only user tables (type 'U') are recognized. Views, synonyms,
--- and other object types return 0.
---
--- See docs/table_exists.md for full documentation.
+-- Unqualified names resolve to dbo (via parse_table_name).
+-- Only user tables (type 'U') are recognized.
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).table_exists
 (
-    @name nvarchar(776)
+    @name nvarchar(1000)
 )
 RETURNS bit
 AS
@@ -32,29 +24,38 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN 0;
 
-    DECLARE @normalized nvarchar(776) = LTRIM(RTRIM(@name));
-    DECLARE @result bit = 0;
+    DECLARE @normalized nvarchar(1000) = LTRIM(RTRIM(@name));
 
-    -- Temp tables: #local and ##global.
+    -- Temp tables: parse_table_name returns schema = NULL and table = '#...'.
+    -- Resolve them in tempdb explicitly.
     IF LEFT(@normalized, 1) = N'#'
     BEGIN
-        SET @result = CASE
+        RETURN CASE
             WHEN OBJECT_ID(N'tempdb..' + @normalized, N'U') IS NOT NULL THEN 1
             ELSE 0
         END;
-        RETURN @result;
     END
 
-    -- No dot: assume default schema (dbo).
-    IF CHARINDEX(N'.', @normalized) = 0
-        SET @normalized = N'dbo.' + QUOTENAME(@normalized);
+    -- Regular tables.
+    DECLARE @db sysname, @schema sysname, @table sysname;
 
-    SET @result = CASE
-        WHEN OBJECT_ID(@normalized, N'U') IS NOT NULL THEN 1
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table]
+    FROM $(SchemaName).parse_table_name(@normalized) p;
+
+    -- parse_table_name returns schema = NULL only for temp tables
+    -- (handled above). Any other NULL means an invalid input.
+    IF @schema IS NULL OR @table IS NULL
+        RETURN 0;
+
+    DECLARE @full_name nvarchar(1000) =
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+
+    RETURN CASE
+        WHEN OBJECT_ID(@full_name, N'U') IS NOT NULL THEN 1
         ELSE 0
     END;
-
-    RETURN @result;
 END;
 GO
-

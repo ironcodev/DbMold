@@ -1,4 +1,14 @@
-# DbMold install order
+# DbMold install order (dependency order)
+# One file per line. Lines starting with # are ignored.
+
 00_schema.sql
+
+functions/parse_table_name.sql
+functions/parse_column_name.sql
+functions/_normalize_default.sql
+functions/_parse_column_list.sql
+functions/default_exists.sql
+functions/foreign_key_exists.sql
+
 functions/table_exists.sql
 functions/column_exists.sql

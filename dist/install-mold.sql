@@ -11,35 +11,325 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'mold')
 GO
 
 -- ---------------------------------------------
--- functions/table_exists.sql
+-- functions/parse_table_name.sql
+-- ---------------------------------------------
+create or alter function mold.parse_table_name(@name nvarchar(1000))
+returns @result table 
+(
+	[db] nvarchar(500),
+	[schema] nvarchar(500),
+	[table] nvarchar(500),
+	[column] nvarchar(500)
+)
+as
+begin
+	set @name = trim(@name)
+
+	if @name is null or len(@name) = 0
+		return
+	
+	declare @db nvarchar(500)
+	declare @schema nvarchar(500)
+	declare @table nvarchar(500)
+	declare @column nvarchar(500)
+
+	declare @part1 nvarchar(500)
+	declare @part2 nvarchar(500)
+	declare @part3 nvarchar(500)
+	declare @part4 nvarchar(500)
+
+	select
+		@part1 = parsename(@name, 4),
+		@part2 = parsename(@name, 3),
+		@part3 = parsename(@name, 2),
+		@part4 = parsename(@name, 1)
+
+	if @part1 is null and @part2 is null and @part3 is null
+	begin
+		set @schema = 'dbo'
+		set @table = @part4
+	end
+	else
+	if @part1 is null and @part2 is null
+	begin
+		set @schema = @part3
+		set @table = @part4
+	end
+	else
+	if @part1 is null
+	begin
+		set @db = @part2
+		set @schema = @part3
+		set @table = @part4
+	end
+	else
+	begin
+		set @db = @part1
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
+
+	insert into @result([db], [schema], [table], [column])
+	values (@db, @schema, @table, @column)
+
+	return
+end
+go
+
+-- ---------------------------------------------
+-- functions/parse_column_name.sql
+-- ---------------------------------------------
+create or alter function mold.parse_column_name(@name nvarchar(1000))
+returns @result table 
+(
+	[db] nvarchar(500),
+	[schema] nvarchar(500),
+	[table] nvarchar(500),
+	[column] nvarchar(500)
+)
+as
+begin
+	set @name = trim(@name)
+	
+	if @name is null or len(@name) = 0
+		return
+	
+	declare @db nvarchar(500)
+	declare @schema nvarchar(500)
+	declare @table nvarchar(500)
+	declare @column nvarchar(500)
+
+	declare @part1 nvarchar(500)
+	declare @part2 nvarchar(500)
+	declare @part3 nvarchar(500)
+	declare @part4 nvarchar(500)
+
+	select
+		@part1 = parsename(@name, 4),
+		@part2 = parsename(@name, 3),
+		@part3 = parsename(@name, 2),
+		@part4 = parsename(@name, 1)
+
+	if @part1 is null and @part2 is null and @part3 is null
+	begin
+		set @column = @part4
+	end
+	else
+	if @part1 is null and @part2 is null
+	begin
+		set @schema = 'dbo'
+		set @table = @part3
+		set @column = @part4
+	end
+	else
+	if @part1 is null
+	begin
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
+	else
+	begin
+		set @db = @part1
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
+
+	insert into @result([db], [schema], [table], [column])
+	values (@db, @schema, @table, @column)
+
+	return
+end
+
+go
+
+-- ---------------------------------------------
+-- functions/_normalize_default.sql
 -- ---------------------------------------------
 -- =============================================
--- mold.table_exists
+-- mold._normalize_default
 -- =============================================
--- Returns 1 if the specified table exists, 0 otherwise.
+-- Normalizes a default-constraint definition for comparison.
 --
--- Supported input formats:
---   'Products'                  -> dbo.Products
---   'sales.Products'            -> sales.Products
---   'db.sales.Products'         -> db.sales.Products
---   '#tmp1'                     -> tempdb..#tmp1 (local temp table)
---   '##tmp2'                    -> tempdb..##tmp2 (global temp table)
---   '[sales].[My.Table]'        -> sales.[My.Table]
+--   - trims whitespace
+--   - strips wrapping parentheses (repeatedly, up to 10 levels)
 --
--- Temp tables:
---    Global templ tables (##x) are supported.
---    Local temp tables (#x): are NOT FULLY supported.
---      (Only supported if temp table is create in the current execution context).
---
--- Unqualified names resolve to dbo (not the caller's DEFAULT_SCHEMA).
--- Only user tables (type 'U') are recognized. Views, synonyms,
--- and other object types return 0.
---
--- See docs/table_exists.md for full documentation.
+-- Examples:
+--   '((10))'      -> '10'
+--   '(getdate())' -> 'getdate()'
+--   'N''x'''      -> 'N''x'''
+--   NULL          -> NULL
 -- =============================================
-CREATE OR ALTER FUNCTION mold.table_exists
+CREATE OR ALTER FUNCTION mold._normalize_default
 (
-    @name nvarchar(776)
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @value IS NULL
+        RETURN NULL;
+
+    DECLARE @v nvarchar(max) = LTRIM(RTRIM(@value));
+    DECLARE @i int = 0;
+
+    -- Strip wrapping parentheses up to 10 levels deep.
+    WHILE @i < 10
+      AND LEN(@v) >= 2
+      AND LEFT(@v, 1) = N'('
+      AND RIGHT(@v, 1) = N')'
+    BEGIN
+        SET @v = LTRIM(RTRIM(SUBSTRING(@v, 2, LEN(@v) - 2)));
+        SET @i += 1;
+    END
+
+    RETURN @v;
+END;
+GO
+
+-- ---------------------------------------------
+-- functions/_parse_column_list.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold._parse_column_list
+-- =============================================
+CREATE OR ALTER FUNCTION mold._parse_column_list
+(
+    @name nvarchar(1000)
+)
+RETURNS TABLE
+AS
+RETURN
+WITH
+    parsed AS
+    (
+        SELECT
+            ends_with_rparen =
+                CASE
+                    WHEN LEN(@name) >= 1 AND RIGHT(@name, 1) = N')' THEN 1
+                    ELSE 0
+                END
+    ),
+    -- Generate 1..LEN(@name) without window functions in WHERE.
+    nums AS
+    (
+        SELECT TOP (LEN(@name))
+            n = ROW_NUMBER() OVER (ORDER BY (SELECT NULL))
+        FROM sys.all_objects a CROSS JOIN sys.all_objects b
+    ),
+    positions AS
+    (
+        SELECT
+            n = nums.n,
+            ch = SUBSTRING(@name, nums.n, 1)
+        FROM nums
+    ),
+    depth_calc AS
+    (
+        SELECT
+            n, ch,
+            depth = SUM(
+                CASE
+                    WHEN ch = N']' THEN 1
+                    WHEN ch = N'[' THEN -1
+                    ELSE 0
+                END
+            ) OVER (ORDER BY n ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        FROM positions
+    ),
+    matching_open AS
+    (
+        SELECT TOP (1) n AS open_pos
+        FROM depth_calc
+        WHERE ch = N'('
+          AND ISNULL(depth, 0) = 0
+          AND (SELECT ends_with_rparen FROM parsed) = 1
+        ORDER BY n DESC
+    ),
+    parts AS
+    (
+        SELECT
+            table_part =
+                CASE
+                    WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
+                        RTRIM(LEFT(@name, (SELECT open_pos FROM matching_open) - 1), N'.')
+                    ELSE @name
+                END,
+            column_part =
+                CASE
+                    WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
+                        SUBSTRING(@name,
+                            (SELECT open_pos FROM matching_open) + 1,
+                            LEN(@name) - (SELECT open_pos FROM matching_open) - 1)
+                    ELSE NULL
+                END
+        FROM parsed
+    ),
+    tbl AS
+    (
+        SELECT
+            pt.[db],
+            pt.[schema],
+            pt.[table],
+            pp.column_part
+        FROM parts pp
+        CROSS APPLY mold.parse_table_name(pp.table_part) pt
+    )
+-- Branch 1: multi-column form.
+SELECT
+    [db]        = ISNULL(t.[db], DB_NAME()),
+    schema_name = t.[schema],
+    table_name  = t.[table],
+    column_name = LTRIM(RTRIM(j.[value])),
+    ord         = j.[key] + 1
+FROM tbl t
+CROSS APPLY OPENJSON(
+    N'[' + ISNULL(
+        N'"' + REPLACE(REPLACE(t.column_part, N'"', N'""'), N',', N'","') + N'"',
+        N'null'
+    ) + N']'
+) j
+WHERE t.column_part IS NOT NULL
+
+UNION ALL
+
+-- Branch 2: single-column form.
+SELECT
+    [db]        = ISNULL(pc.[db], DB_NAME()),
+    schema_name = pc.[schema],
+    table_name  = pc.[table],
+    column_name = pc.[column],
+    ord         = 1
+FROM mold.parse_column_name(@name) pc
+WHERE NOT EXISTS (SELECT 1 FROM parts WHERE column_part IS NOT NULL)
+  AND pc.[column] IS NOT NULL;
+GO
+
+-- ---------------------------------------------
+-- functions/default_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.default_exists
+-- =============================================
+-- Returns 1 if the column has a default constraint (optionally matching
+-- a specific value), 0 otherwise.
+--
+-- Accepts a column reference in these forms:
+--   'Products.IsShipped'                -> dbo.Products.IsShipped
+--   'sales.Products.IsShipped'          -> sales.Products.IsShipped
+--   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
+--   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
+--
+-- If @expected_value is NULL, only the presence of the default is checked.
+-- If @expected_value is provided, the default definition is normalized
+-- (via _normalize_default) and compared to the normalized expected value.
+-- =============================================
+CREATE OR ALTER FUNCTION mold.default_exists
+(
+    @name           nvarchar(1000),
+    @expected_value nvarchar(max) = NULL
 )
 RETURNS bit
 AS
@@ -47,29 +337,213 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN 0;
 
-    DECLARE @normalized nvarchar(776) = LTRIM(RTRIM(@name));
-    DECLARE @result bit = 0;
+    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
 
-    -- Temp tables: #local and ##global.
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table],
+        @column = p.[column]
+    FROM mold.parse_column_name(@name) p;
+
+    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
+        RETURN 0;
+
+    DECLARE @table_id int = OBJECT_ID(
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table), N'U');
+
+    IF @table_id IS NULL
+        RETURN 0;
+
+    DECLARE @definition nvarchar(max);
+
+    SELECT @definition = dc.definition
+    FROM sys.default_constraints dc
+    JOIN sys.columns c
+      ON c.object_id = dc.parent_object_id
+     AND c.column_id = dc.parent_column_id
+    WHERE dc.parent_object_id = @table_id
+      AND c.name = @column;
+
+    IF @definition IS NULL
+        RETURN 0;
+
+    -- Presence-only check.
+    IF @expected_value IS NULL
+        RETURN 1;
+
+    -- Value check.
+    DECLARE @actual_norm   nvarchar(max) = mold._normalize_default(@definition);
+    DECLARE @expected_norm nvarchar(max) = mold._normalize_default(@expected_value);
+
+    RETURN CASE WHEN @actual_norm = @expected_norm THEN 1 ELSE 0 END;
+END;
+GO
+
+-- ---------------------------------------------
+-- functions/foreign_key_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.foreign_key_exists
+-- =============================================
+CREATE OR ALTER FUNCTION mold.foreign_key_exists
+(
+    @fk_column nvarchar(1000),
+    @pk_column nvarchar(1000)
+)
+RETURNS bit
+AS
+BEGIN
+    IF @fk_column IS NULL OR LTRIM(RTRIM(@fk_column)) = ''
+        RETURN 0;
+    IF @pk_column IS NULL OR LTRIM(RTRIM(@pk_column)) = ''
+        RETURN 0;
+
+    DECLARE @fk TABLE
+    (
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        ord         int
+    );
+
+    DECLARE @pk TABLE
+    (
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        ord         int
+    );
+
+    -- NOTE: _parse_column_list returns columns named
+    -- schema_name and table_name (not schema / table).
+    INSERT INTO @fk ([db], [schema], [table], [column], ord)
+    SELECT [db], schema_name, table_name, column_name, ord
+    FROM mold._parse_column_list(@fk_column);
+
+    INSERT INTO @pk ([db], [schema], [table], [column], ord)
+    SELECT [db], schema_name, table_name, column_name, ord
+    FROM mold._parse_column_list(@pk_column);
+
+    IF NOT EXISTS (SELECT 1 FROM @fk) OR NOT EXISTS (SELECT 1 FROM @pk)
+        RETURN 0;
+
+    DECLARE @fk_count int = (SELECT COUNT(*) FROM @fk);
+    DECLARE @pk_count int = (SELECT COUNT(*) FROM @pk);
+    IF @fk_count <> @pk_count
+        RETURN 0;
+
+    DECLARE @fk_db sysname, @fk_schema sysname, @fk_table sysname;
+    DECLARE @pk_db sysname, @pk_schema sysname, @pk_table sysname;
+
+    SELECT TOP (1)
+        @fk_db = [db], @fk_schema = [schema], @fk_table = [table]
+    FROM @fk;
+
+    SELECT TOP (1)
+        @pk_db = [db], @pk_schema = [schema], @pk_table = [table]
+    FROM @pk;
+
+    DECLARE @fk_table_id int = OBJECT_ID(
+        QUOTENAME(@fk_db) + N'.' + QUOTENAME(@fk_schema) + N'.' + QUOTENAME(@fk_table), N'U');
+    DECLARE @pk_table_id int = OBJECT_ID(
+        QUOTENAME(@pk_db) + N'.' + QUOTENAME(@pk_schema) + N'.' + QUOTENAME(@pk_table), N'U');
+
+    IF @fk_table_id IS NULL OR @pk_table_id IS NULL
+        RETURN 0;
+
+    RETURN CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.foreign_keys fk
+              ON fk.object_id = fkc.constraint_object_id
+            JOIN sys.columns fk_col
+              ON fk_col.object_id = fkc.parent_object_id
+             AND fk_col.column_id = fkc.parent_column_id
+            JOIN sys.columns pk_col
+              ON pk_col.object_id = fkc.referenced_object_id
+             AND pk_col.column_id = fkc.referenced_column_id
+            JOIN @fk f
+              ON f.ord = fkc.constraint_column_id
+             AND f.[column] = fk_col.name
+            JOIN @pk p
+              ON p.ord = fkc.constraint_column_id
+             AND p.[column] = pk_col.name
+            WHERE fkc.parent_object_id     = @fk_table_id
+              AND fkc.referenced_object_id = @pk_table_id
+            GROUP BY fk.object_id
+            HAVING COUNT(*) = @fk_count
+        ) THEN 1
+        ELSE 0
+    END;
+END;
+GO
+
+-- ---------------------------------------------
+-- functions/table_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.table_exists
+-- =============================================
+-- Returns 1 if the specified table exists, 0 otherwise.
+--
+-- Input formats:
+--   'Products'             -> dbo.Products
+--   'sales.Products'       -> sales.Products
+--   'db.sales.Products'    -> db.sales.Products
+--   '#tmp1'                -> tempdb..#tmp1
+--   '##tmp2'               -> tempdb..##tmp2
+--   '[sales].[My.Table]'   -> sales.[My.Table]
+--
+-- Unqualified names resolve to dbo (via parse_table_name).
+-- Only user tables (type 'U') are recognized.
+-- =============================================
+CREATE OR ALTER FUNCTION mold.table_exists
+(
+    @name nvarchar(1000)
+)
+RETURNS bit
+AS
+BEGIN
+    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
+        RETURN 0;
+
+    DECLARE @normalized nvarchar(1000) = LTRIM(RTRIM(@name));
+
+    -- Temp tables: parse_table_name returns schema = NULL and table = '#...'.
+    -- Resolve them in tempdb explicitly.
     IF LEFT(@normalized, 1) = N'#'
     BEGIN
-        SET @result = CASE
+        RETURN CASE
             WHEN OBJECT_ID(N'tempdb..' + @normalized, N'U') IS NOT NULL THEN 1
             ELSE 0
         END;
-        RETURN @result;
     END
 
-    -- No dot: assume default schema (dbo).
-    IF CHARINDEX(N'.', @normalized) = 0
-        SET @normalized = N'dbo.' + QUOTENAME(@normalized);
+    -- Regular tables.
+    DECLARE @db sysname, @schema sysname, @table sysname;
 
-    SET @result = CASE
-        WHEN OBJECT_ID(@normalized, N'U') IS NOT NULL THEN 1
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table]
+    FROM mold.parse_table_name(@normalized) p;
+
+    -- parse_table_name returns schema = NULL only for temp tables
+    -- (handled above). Any other NULL means an invalid input.
+    IF @schema IS NULL OR @table IS NULL
+        RETURN 0;
+
+    DECLARE @full_name nvarchar(1000) =
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+
+    RETURN CASE
+        WHEN OBJECT_ID(@full_name, N'U') IS NOT NULL THEN 1
         ELSE 0
     END;
-
-    RETURN @result;
 END;
 GO
 
@@ -81,27 +555,17 @@ GO
 -- =============================================
 -- Returns 1 if the specified column exists on a user table, 0 otherwise.
 --
--- Supported input formats:
---   'Table.Column'                 -> dbo.Table.Column
---   'Schema.Table.Column'          -> Schema.Table.Column
---   'Db.Schema.Table.Column'       -> Db.Schema.Table.Column
---   '[sales].[My.Table].[My.Col]'  -> sales.[My.Table].[My.Col]
+-- Input formats:
+--   'Table.Column'                  -> dbo.Table.Column
+--   'Schema.Table.Column'           -> Schema.Table.Column
+--   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
+--   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
 --
--- Temp tables:
---    Global templ tables (##x) are supported.
---    Local temp tables (#x): are NOT FULLY supported.
---      (Only supported if temp table is create in the current execution context).
---
--- The LAST dot separates the column from the object; everything
--- before it is the table name (which may itself contain dots).
---
--- Only user tables are recognized; views and synonyms return 0.
---
--- See docs/column_exists.md for full documentation.
+-- Temp tables are NOT supported (UDF limitation).
 -- =============================================
 CREATE OR ALTER FUNCTION mold.column_exists
 (
-    @name nvarchar(776)
+    @name nvarchar(1000)
 )
 RETURNS bit
 AS
@@ -109,38 +573,30 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN 0;
 
-    DECLARE @normalized nvarchar(776) = LTRIM(RTRIM(@name));
+    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
 
-    DECLARE @last_dot int = CHARINDEX(N'.', REVERSE(@normalized));
-    IF @last_dot = 0
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table],
+        @column = p.[column]
+    FROM mold.parse_column_name(@name) p;
+
+    -- For temp tables, parse_column_name returns schema = NULL and
+    -- table = '#...'. Reject them (UDFs cannot access temp tables).
+    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
         RETURN 0;
 
-    DECLARE @object_part nvarchar(776) =
-        LEFT(@normalized, LEN(@normalized) - @last_dot);
-    DECLARE @column_part nvarchar(776) =
-        RIGHT(@normalized, @last_dot - 1);
-
-    IF @column_part = N'' OR @object_part = N''
+    IF LEFT(@table, 1) = N'#'
         RETURN 0;
 
-    -- Temp tables are out of scope for a UDF.
-    IF LEFT(@object_part, 1) = N'#'
+    DECLARE @full_name nvarchar(1000) =
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+
+    IF OBJECT_ID(@full_name, N'U') IS NULL
         RETURN 0;
 
-    DECLARE @object_name nvarchar(776) = @object_part;
-    IF CHARINDEX(N'.', @object_name) = 0
-        SET @object_name = N'dbo.' + QUOTENAME(@object_name);
-
-    DECLARE @column_name sysname = @column_part;
-    IF LEN(@column_name) >= 2
-       AND LEFT(@column_name, 1) = N'['
-       AND RIGHT(@column_name, 1) = N']'
-        SET @column_name = SUBSTRING(@column_name, 2, LEN(@column_name) - 2);
-
-    IF OBJECT_ID(@object_name, N'U') IS NULL
-        RETURN 0;
-
-    IF COL_LENGTH(@object_name, @column_name) IS NULL
+    IF COL_LENGTH(@full_name, @column) IS NULL
         RETURN 0;
 
     RETURN 1;
