@@ -9,6 +9,7 @@ functions/_normalize_default.sql
 functions/_parse_column_list.sql
 functions/default_exists.sql
 functions/foreign_key_exists.sql
+functions/get_default.sql
 
 functions/table_exists.sql
 functions/column_exists.sql
