@@ -6,3 +6,5 @@ DROP PROCEDURE IF EXISTS dbo.foreign_key_exists_setup;
 DROP PROCEDURE IF EXISTS dbo.foreign_key_exists_teardown;
 DROP PROCEDURE IF EXISTS dbo.get_default_setup;
 DROP PROCEDURE IF EXISTS dbo.get_default_teardown;
+DROP PROCEDURE IF EXISTS dbo.column_info_setup;
+DROP PROCEDURE IF EXISTS dbo.column_info_teardown;

@@ -99,7 +99,7 @@ All objects live in the `mold` schema. Naming follows a simple rule:
 | `m.column_exists`            | `bit`   | Does the column exist?             |
 | `m.default_exists`           | `bit`   | Does the column have this default? |
 | `m.get_default`              | `nvarchar(max)` | Current default of a column. |
-| `m.get_column_info`          | `table` | Type, nullability, default, etc.   |
+| `m.column_info`          | `table` | Type, nullability, default, etc.   |
 
 ---
 
