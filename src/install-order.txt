@@ -16,3 +16,5 @@ functions/column_type.sql
 
 functions/table_exists.sql
 functions/column_exists.sql
+
+procedures/create_default.sql
