@@ -1,0 +1,13 @@
+{
+  "files": {
+    "column_api": {
+      "skip": true
+    },
+    "parse_table_name": {
+      "skip": true
+    },
+    "parse_column_name": {
+      "skip": true
+    }
+  }
+}

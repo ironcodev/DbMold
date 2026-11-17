@@ -25,8 +25,8 @@ BEGIN
     DECLARE @v nvarchar(max) = LTRIM(RTRIM(@value));
     DECLARE @i int = 0;
 
-    -- Strip wrapping parentheses up to 10 levels deep.
-    WHILE @i < 10
+    -- Strip wrapping parentheses up to 20 levels deep.
+    WHILE @i < 20
       AND LEN(@v) >= 2
       AND LEFT(@v, 1) = N'('
       AND RIGHT(@v, 1) = N')'
