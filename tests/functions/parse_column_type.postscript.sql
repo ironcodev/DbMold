@@ -1,0 +1,1 @@
+exec dbo.parse_column_type_teardown

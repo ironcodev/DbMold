@@ -1,0 +1,1 @@
+exec dbo.column_type_change_teardown

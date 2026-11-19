@@ -1,13 +1,13 @@
 {
   "files": {
-    "column_api": { "skip": true },
-    "column_default": { "skip": true },
-    "column_exists": { "skip": true },
-    "column_info": { "skip": true },
-    "default_exists": { "skip": true },
-    "foreign_key_exists": { "skip": true },
+    "column_api": { "skip": true, "postScript": "./tests/functions/column_api.postscript.sql" },
+    "column_default": { "skip": true, "postScript": "./tests/functions/column_default.postscript.sql" },
+    "column_exists": { "skip": true, "postScript": "./tests/functions/column_exists.postscript.sql" },
+    "column_info": { "skip": true, "postScript": "./tests/functions/column_info.postscript.sql" },
+    "default_exists": { "skip": true, "postScript": "./tests/functions/default_exists.postscript.sql" },
+    "foreign_key_exists": { "skip": true, "postScript": "./tests/functions/foreign_key_exists.postscript.sql" },
     "parse_column_name": { "skip": true },
-    "parse_column_type": { "skip": true },
+    "parse_column_type": { "skip": true, "postScript": "./tests/functions/parse_column_type.postscript.sql" },
     "parse_table_name": { "skip": true },
     "table_exists": { "skip": true },
     "_normalize_default": { "skip": true },
@@ -15,9 +15,9 @@
     "create_default": { "skip": true },
     "column_dependencies": {
       "skip": false,
-      "postScript": "./tests/functions/column_dependencies.teardown.sql"
+      "postScript": "./tests/functions/column_dependencies.postscript.sql"
     },
-    "column_type_change": { "skip": true },
+    "column_type_change": { "skip": true, "postScript": "./tests/functions/column_type_change.postscript.sql" },
     "create_column": { "skip": true }
   }
 }

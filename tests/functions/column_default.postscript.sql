@@ -1,0 +1,1 @@
+exec dbo.column_default_teardown
