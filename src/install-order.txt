@@ -16,5 +16,8 @@ functions/column_type.sql
 functions/table_exists.sql
 functions/column_exists.sql
 functions/parse_column_type.sql
+functions/column_dependencies.sql
+functions/column_type_change.sql
 
 procedures/create_default.sql
+procedures/create_column.sql

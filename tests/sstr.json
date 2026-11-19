@@ -7,11 +7,17 @@
     "default_exists": { "skip": true },
     "foreign_key_exists": { "skip": true },
     "parse_column_name": { "skip": true },
-    "parse_column_type": { "skip": false },
+    "parse_column_type": { "skip": true },
     "parse_table_name": { "skip": true },
     "table_exists": { "skip": true },
     "_normalize_default": { "skip": true },
     "_parse_column_list": { "skip": true },
-    "create_default": { "skip": true }
+    "create_default": { "skip": true },
+    "column_dependencies": {
+      "skip": false,
+      "postScript": "./tests/functions/column_dependencies.teardown.sql"
+    },
+    "column_type_change": { "skip": true },
+    "create_column": { "skip": true }
   }
 }
