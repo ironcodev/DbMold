@@ -3108,8 +3108,11 @@ go
 --   - sp_getapplock on db.schema.table, exclusive, for the duration of
 --     the transaction. Concurrent create_column calls on the same table
 --     serialize instead of racing.
---   - Runs in a single transaction; any THROW rolls back both the column
---     change and the default change together.
+--   - Uses a transaction when called standalone, or a savepoint when called
+--     inside a caller-owned transaction. It commits/rolls back only a
+--     transaction it started; caller-owned transactions remain caller-owned.
+--   - Any committable failure rolls back this helper's work. If a caller-owned
+--     transaction becomes uncommittable, the caller must roll it back.
 --   - Column dependencies (index, FK, computed column, view, module) are
 --     detected via column_dependencies and refuse the ALTER with a
 --     message naming the blocker. Drop or alter the dependent object
@@ -3130,6 +3133,7 @@ go
 --   50017  existing rows would not fit the target type or NOT NULL
 --   50018  Unicode-to-non-Unicode change requires an explicit COLLATE
 --   50019  specified collation matches the current one (no-op change)
+--   50020  caller transaction is not committable
 --
 -- Examples:
 --   EXEC m.create_column @spec = N'{
@@ -3154,6 +3158,12 @@ go
 --     "dryRun": true
 --   }';
 -- =============================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE mold.create_column
 (
     @spec nvarchar(max)
@@ -3214,10 +3224,14 @@ BEGIN
         ) AS j;
 
         IF @table IS NULL OR @name IS NULL
-            THROW 50000, N'create_column: @spec must contain "table" and "name".', 1;
+        BEGIN
+            ;THROW 50000, N'create_column: @spec must contain "table" and "name".', 1;
+        END
 
         IF @computed = 0 AND @type IS NULL
-            THROW 50000, N'create_column: @spec must contain "type" unless "computed" is provided.', 1;
+        BEGIN
+            ;THROW 50000, N'create_column: @spec must contain "type" unless "computed" is provided.', 1;
+        END
 
         ------------------------------------------------------------------
         -- 2. Resolve names, validate table
@@ -3231,7 +3245,9 @@ BEGIN
         IF @schema IS NULL SET @schema = N'dbo';
 
         IF mold.table_exists(@table) = 0
-            THROW 50001, N'create_column: target table does not exist.', 1;
+        BEGIN
+            ;THROW 50001, N'create_column: target table does not exist.', 1;
+        END
 
         DECLARE @full_table  nvarchar(1500) = QUOTENAME(@schema) + N'.' + QUOTENAME(@tbl);
         DECLARE @full_column nvarchar(1500) = @full_table + N'.' + QUOTENAME(@name);
@@ -3278,7 +3294,7 @@ BEGIN
             BEGIN
                 DECLARE @msg_type nvarchar(2048) =
                     N'create_column: ' + ISNULL((SELECT validation_error FROM @t), N'invalid type.');
-                THROW 50002, @msg_type, 1;
+                ;THROW 50002, @msg_type, 1;
             END
         END
 
@@ -3289,18 +3305,41 @@ BEGIN
             N'create_column:' + QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@tbl);
 
         DECLARE @lock_rc int;
-        EXEC @lock_rc = sp_getapplock
-             @Resource    = @lock_resource,
-             @LockMode    = N'Exclusive',
-             @LockOwner   = N'Transaction',
-             @LockTimeout = @timeout;
-
-        IF @lock_rc < 0
-            THROW 50003, N'create_column: could not acquire lock within timeout.', 1;
-
-        BEGIN TRAN;
+        DECLARE @started_transaction bit = 0;
+        DECLARE @savepoint_created bit = 0;
 
         BEGIN TRY
+            -- Respect a transaction owned by the caller. A savepoint lets
+            -- this procedure undo its own work without rolling back the
+            -- caller's transaction.
+            IF @@TRANCOUNT = 0
+            BEGIN
+                BEGIN TRANSACTION;
+                SET @started_transaction = 1;
+            END
+            ELSE
+            BEGIN
+                IF XACT_STATE() <> 1
+                BEGIN
+                    ;THROW 50020, N'create_column: the caller transaction is not committable.', 1;
+                END
+
+                SAVE TRANSACTION create_column_savepoint;
+                SET @savepoint_created = 1;
+            END
+
+            -- Transaction-owned application locks require an active
+            -- transaction, so acquire the lock only after transaction setup.
+            EXEC @lock_rc = sp_getapplock
+                 @Resource    = @lock_resource,
+                 @LockMode    = N'Exclusive',
+                 @LockOwner   = N'Transaction',
+                 @LockTimeout = @timeout;
+
+            IF @lock_rc < 0
+            BEGIN
+                ;THROW 50003, N'create_column: could not acquire lock within timeout.', 1;
+            END
             ------------------------------------------------------------------
             -- 5. CREATE path
             ------------------------------------------------------------------
@@ -3332,14 +3371,17 @@ BEGIN
                 IF @dry_run = 1
                 BEGIN
                     RAISERROR(@ddl, 0, 1) WITH NOWAIT;
-                    ROLLBACK;
+                    IF @started_transaction = 1
+                        COMMIT TRANSACTION;
+
                     SELECT status = N'DRY RUN', detail = @ddl;
                     RETURN;
                 END
 
                 EXEC sp_executesql @ddl;
 
-                COMMIT;
+                IF @started_transaction = 1
+                    COMMIT TRANSACTION;
 
                 DECLARE @msg_new nvarchar(4000) = N'create_column: ' + @full_column + N' -> CREATED';
                 RAISERROR(@msg_new, 0, 1) WITH NOWAIT;
@@ -3452,27 +3494,37 @@ BEGIN
                       END
                     + @blocker
                     + N'. Drop or alter the dependent object first, or change the column manually.';
-                THROW 50010, @dep_msg, 1;
+                ;THROW 50010, @dep_msg, 1;
             END
 
             ------------------------------------------------------------------
             -- 8. Identity and computed must match, not change
             ------------------------------------------------------------------
             IF (SELECT is_identity FROM @cur) = 1 AND @identity = 0
-                THROW 50011, N'create_column: existing column is IDENTITY; cannot convert.', 1;
+            BEGIN
+                ;THROW 50011, N'create_column: existing column is IDENTITY; cannot convert.', 1;
+            END
             IF (SELECT is_identity FROM @cur) = 0 AND @identity = 1
-                THROW 50012, N'create_column: existing column is not IDENTITY; cannot convert.', 1;
+            BEGIN
+                ;THROW 50012, N'create_column: existing column is not IDENTITY; cannot convert.', 1;
+            END
 
             IF (SELECT is_computed FROM @cur) = 1 AND @computed = 0
-                THROW 50013, N'create_column: existing column is computed; cannot convert to a regular column.', 1;
+            BEGIN
+                ;THROW 50013, N'create_column: existing column is computed; cannot convert to a regular column.', 1;
+            END
             IF (SELECT is_computed FROM @cur) = 0 AND @computed = 1
-                THROW 50014, N'create_column: existing column is not computed; cannot convert to computed.', 1;
+            BEGIN
+                ;THROW 50014, N'create_column: existing column is not computed; cannot convert to computed.', 1;
+            END
 
             IF @computed = 1
             BEGIN
                 DECLARE @cur_expr nvarchar(max) = (SELECT computed_definition FROM @cur);
                 IF mold._normalize_default(@cur_expr) <> mold._normalize_default(@expression)
-                    THROW 50015, N'create_column: computed expression differs from existing column.', 1;
+                BEGIN
+                    ;THROW 50015, N'create_column: computed expression differs from existing column.', 1;
+                END
             END
 
             ------------------------------------------------------------------
@@ -3517,7 +3569,7 @@ BEGIN
                     IF @cls = N'forbidden'
                     BEGIN
                         DECLARE @msg_forbid nvarchar(2048) = N'create_column: ' + @reason;
-                        THROW 50016, @msg_forbid, 1;
+                        ;THROW 50016, @msg_forbid, 1;
                     END
 
                     IF @needs_data_check = 1
@@ -3534,16 +3586,20 @@ BEGIN
                             DECLARE @msg_data nvarchar(2048) =
                                 N'create_column: ' + @reason
                                 + N' (' + CAST(@bad AS nvarchar(20)) + N' row(s) would not fit).';
-                            THROW 50017, @msg_data, 1;
+                            ;THROW 50017, @msg_data, 1;
                         END
                     END
 
                     IF @needs_collation_check = 1
                     BEGIN
                         IF @spec_collation IS NULL
-                            THROW 50018, N'create_column: Unicode-to-non-Unicode change requires an explicit COLLATE clause in @spec.type.', 1;
+                        BEGIN
+                            ;THROW 50018, N'create_column: Unicode-to-non-Unicode change requires an explicit COLLATE clause in @spec.type.', 1;
+                        END
                         IF @spec_collation = @cur_collation
-                            THROW 50019, N'create_column: specified collation matches the current one; the encoding change has no effect.', 1;
+                        BEGIN
+                            ;THROW 50019, N'create_column: specified collation matches the current one; the encoding change has no effect.', 1;
+                        END
 
                         SET @new_collation = @spec_collation;
                     END
@@ -3568,7 +3624,9 @@ BEGIN
                     EXEC sp_executesql @sql_chk, N'@h bit OUTPUT', @h = @has_nulls OUTPUT;
 
                     IF @has_nulls = 1
-                        THROW 50017, N'create_column: cannot set NOT NULL; column contains NULLs.', 1;
+                    BEGIN
+                        ;THROW 50017, N'create_column: cannot set NOT NULL; column contains NULLs.', 1;
+                    END
                 END
                 SET @alter_nullable = 1;
             END
@@ -3587,7 +3645,9 @@ BEGIN
             ------------------------------------------------------------------
             IF @alter_type = 0 AND @alter_nullable = 0 AND @alter_sparse = 0 AND @alter_default = 0
             BEGIN
-                COMMIT;
+                IF @started_transaction = 1
+                    COMMIT TRANSACTION;
+
                 RAISERROR(N'create_column: no change', 0, 1) WITH NOWAIT;
                 SELECT status = N'NO CHANGE', detail = N'column already matches spec';
                 RETURN;
@@ -3636,7 +3696,8 @@ BEGIN
                     RAISERROR(@dry_default, 0, 1) WITH NOWAIT;
                 END
 
-                ROLLBACK;
+                IF @started_transaction = 1
+                    COMMIT TRANSACTION;
 
                 SELECT status = N'DRY RUN', detail = @ddl2
                        + CASE WHEN @alter_default = 1
@@ -3657,7 +3718,8 @@ BEGIN
                      @value  = @default,
                      @name   = @default_name;
 
-            COMMIT;
+            IF @started_transaction = 1
+                COMMIT TRANSACTION;
 
             DECLARE @msg_alt nvarchar(4000) = N'create_column: ' + @full_column + N' -> ALTERED';
             RAISERROR(@msg_alt, 0, 1) WITH NOWAIT;
@@ -3668,12 +3730,27 @@ BEGIN
                                ELSE N'' END;
         END TRY
         BEGIN CATCH
-            IF @@TRANCOUNT > 0 ROLLBACK;
-            THROW;
+            IF @started_transaction = 1
+            BEGIN
+                -- This procedure owns the transaction, so it can roll it
+                -- back completely (including releasing its applock).
+                IF XACT_STATE() <> 0
+                    ROLLBACK TRANSACTION;
+            END
+            ELSE IF @savepoint_created = 1 AND XACT_STATE() = 1
+            BEGIN
+                -- The caller owns the transaction. Undo only this
+                -- procedure's work; never roll back the caller's transaction.
+                ROLLBACK TRANSACTION create_column_savepoint;
+            END
+            -- If XACT_STATE() = -1 in a caller-owned transaction, SQL Server
+            -- does not permit rollback to a savepoint. Leave the full rollback
+            -- decision to the caller.
+            ;THROW;
         END CATCH
     END TRY
     BEGIN CATCH
-        THROW;
+        ;THROW;
     END CATCH
 END
 GO
