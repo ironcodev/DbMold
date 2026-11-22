@@ -9,6 +9,991 @@
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'm')
     EXEC(N'CREATE SCHEMA [m]');
 GO
+IF 'm' = 'mold' AND NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'config' AND schema_id = schema_id('m'))
+    CREATE TABLE m.config([key] VARCHAR(100) PRIMARY KEY, [value] NVARCHAR(1000));
+GO
+
+go
+
+-- ---------------------------------------------
+-- 01_config.sql
+-- ---------------------------------------------
+create or alter proc m.set_config(@key varchar(50), @value nvarchar(1000))
+as
+begin
+    set nocount on;
+
+    set @key = trim(isnull(@key, ''))
+
+    if @key = ''
+        raiserror('m set config: key is required', 16, 1)
+
+    if not exists (select 1 from m.config where [key] = @key)
+        insert into m.config([key], [value])
+        values (@key, @value)
+    else
+        update m.config set [value] = @value where [key] = @key
+end
+go
+
+create or alter function m.get_config(@key varchar(50))
+returns nvarchar(1000)
+as
+begin
+    return (select [value] from m.config where [key] = @key)
+end
+go
+
+
+-- ---------------------------------------------
+-- 02_debug.sql
+-- ---------------------------------------------
+create or alter proc m.set_debugging(@category varchar(50), @value bit)
+as
+begin
+    set nocount on;
+
+    if @category = '*'
+        set @category = 'all'
+
+    set @category = 'debug.' + @category
+    set @value = isnull(cast(@value as varchar(1)), '0')
+
+    exec m.set_config @category, @value
+end
+go
+
+/*
+    debugging levels:
+        query  , q :  dynamic queries
+        nquery , qn:  nested queries
+        dquery , qd:  deep queries
+        lquery , ql:  loop queries
+        vars   , v :  local variables
+        dvars  , vd:  deep variables
+        lvars  , vl:  loop variables
+        debug  , d :  debug
+        log    , l :  log
+        warning, w :  warnings
+        trace  , t :  trace
+        errors , e :  show error_message()
+        result , r :  results
+        config , c :  configs
+        setting, s :  settings
+        procedure,p:  procedures
+        all   , * :  everything
+*/
+create or alter function m.get_debugging(@category varchar(50))
+returns bit
+as
+begin
+    declare @result bit
+
+    if @category = '*'
+        set @category = 'all'
+
+    set @category = 'debug.' + @category
+
+    set @result = case when m.get_config(@category) = '1' then 1 else 0 end
+
+    return @result
+end
+go
+
+create or alter function m.is_debugging(@category varchar(500)) returns bit
+as
+begin
+    return (case when exists
+    (
+        select 1 from string_split(@category, ',')
+        where m.get_debugging([value]) = 1
+    ) or m.get_debugging('all') = 1 then 1 else 0 end)
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/base64_to_varbinary.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.base64_to_varbinary
+-- =============================================
+-- Decodes a base64 string to varbinary.
+--
+-- Examples:
+--   base64_to_varbinary(N'aGVsbG8=') -> 0x68656C6C6F
+--   base64_to_varbinary(N'')         -> 0x
+--   base64_to_varbinary(NULL)        -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION [m].[base64_to_varbinary]
+(
+	 @s		VARCHAR(MAX)
+) 
+RETURNS VARBINARY(MAX)
+AS
+BEGIN
+	if @s is null return null;
+
+    -- SQL Server 2022+: return cast(N'' as xml).value('xs:base64Binary(sql:variable("@s"))', 'varbinary(max)');
+    return cast(N'' as xml).value('xs:base64Binary(sql:variable("@s"))', 'varbinary(max)');
+END
+
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/hex_to_varbinary.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.hex_to_varbinary
+-- =============================================
+-- Decodes a hexadecimal string to varbinary.
+--
+-- The input is the hex digits without the 0x prefix (the format produced
+-- by varbinary_to_hex). Case-insensitive: 'AB' and 'ab' decode to the
+-- same byte. An odd number of hex digits is rejected by xs:hexBinary.
+--
+-- Examples:
+--   hex_to_varbinary(N'AB')      -> 0xAB
+--   hex_to_varbinary(N'ABCD')    -> 0xABCD
+--   hex_to_varbinary(N'abcd')    -> 0xABCD
+--   hex_to_varbinary(N'')        -> 0x
+--   hex_to_varbinary(NULL)       -> NULL
+--   hex_to_varbinary(N'ABC')     -> error: xs:hexBinary requires an even number of digits
+-- =============================================
+create or alter function m.hex_to_varbinary
+(
+    @s nvarchar(max)
+)
+returns varbinary(max)
+as
+begin
+    if @s is null return null;
+
+    return cast(N'' as xml).value(
+        'xs:hexBinary(sql:variable("@s"))',
+        'varbinary(max)'
+    );
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_decimal.sql
+-- ---------------------------------------------
+create or alter function m.is_decimal
+(
+	@x varchar(50)
+)
+returns bit
+as
+begin
+	declare @result bit
+
+	set @result = m.is_empty(@x)
+
+	if @result = 0
+	begin
+		declare @i int
+
+		set @i = charindex('.', @x)
+
+		if @i > 0
+		begin
+			declare @left varchar(50)
+			declare @right varchar(50)
+
+			set @left = case when @i > 1 then ltrim(left(@x, @i - 1)) else '' end
+			set @right = ltrim(right(@x, len(@x) - @i))
+
+			if @left = '' and @right = ''
+				set @result = 0
+			else
+			if @left = ''
+				set @result = m.is_integer(@right)
+			else
+			if @right = ''
+				set @result = m.is_integer(@left)
+			else
+				set @result = m.is_integer(@left) & m.is_integer(@right)
+		end
+		else
+			set @result = m.is_integer(@x)
+	end
+	else
+		set @result = 0
+
+	return @result
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_decimal0.sql
+-- ---------------------------------------------
+create or alter function m.is_decimal0
+(
+	@x varchar(50)
+)
+returns bit
+as
+begin
+	return m.is_decimal(@x) & (case when trim(replace(replace(@x, '.', ''), '0', '')) = '' then 1 else 0 end)
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_empty.sql
+-- ---------------------------------------------
+create or alter function m.is_empty(@x nvarchar(max))
+returns bit
+as
+begin
+    return case
+		when len(isnull(TRIM(NCHAR(0x09) + NCHAR(0x0A) + NCHAR(0x0B) + NCHAR(0x0C) + NCHAR(0x0D) + NCHAR(0x20) FROM @x), '')) = 0
+		then 1 else 0
+	end
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_integer.sql
+-- ---------------------------------------------
+create or alter function m.[is_integer]
+(
+	@x varchar(20)
+)
+returns bit
+as
+begin
+	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_whitespace.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.is_whitespace
+-- =============================================
+-- Returns 1 if @value consists only of whitespace (space, tab, CR, LF),
+-- 0 otherwise. A null value returns 0 (null is not whitespace).
+-- An empty string returns 1 (vacuously all-whitespace).
+--
+-- Examples:
+--   is_whitespace(N'   ')      -> 1
+--   is_whitespace(N'  a  ')    -> 0
+--   is_whitespace(N'')         -> 1
+--   is_whitespace(NULL)        -> 0
+--   is_whitespace(NCHAR(9))    -> 1
+--   is_whitespace(N'a' + NCHAR(10) + N'b') -> 0
+-- =============================================
+create or alter function m.is_whitespace
+(
+    @value nvarchar(max)
+)
+returns bit
+as
+begin
+    if @value is null return 0;
+
+    return case
+        when patindex(N'%[^ ' + char(9) + char(10) + char(13) + N']%', @value) = 0 then 1
+        else 0
+    end;
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/json_array_equals.sql
+-- ---------------------------------------------
+create or alter function m.json_array_equals
+(
+    @JsonArray1 NVARCHAR(MAX),
+    @JsonArray2 NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @Result BIT = 0
+    
+    -- Handle NULL cases
+    IF (@JsonArray1 IS NULL AND @JsonArray2 IS NULL)
+        RETURN 1
+    
+    IF (@JsonArray1 IS NULL OR @JsonArray2 IS NULL)
+        RETURN 0
+    
+    -- Handle empty strings
+    DECLARE @Trimmed1 NVARCHAR(MAX) = LTRIM(RTRIM(@JsonArray1))
+    DECLARE @Trimmed2 NVARCHAR(MAX) = LTRIM(RTRIM(@JsonArray2))
+    
+    IF (@Trimmed1 = '[]' AND @Trimmed2 = '[]')
+        RETURN 1
+        
+    IF (@Trimmed1 = '[]' OR @Trimmed2 = '[]')
+        RETURN 0
+    
+    -- Validate JSON format
+    IF (ISJSON(@JsonArray1) = 0 OR ISJSON(@JsonArray2) = 0)
+        RETURN 0
+    
+    -- Create table variables for array items
+    DECLARE @Array1 TABLE
+	(
+        [position] INT,
+        [type] INT,
+        [value] NVARCHAR(MAX)
+    )
+    
+    DECLARE @Array2 TABLE
+	(
+        [position] INT,
+        [type] INT,
+        [value] NVARCHAR(MAX)
+    )
+    
+    -- Parse arrays
+    INSERT INTO @Array1 ([position], [value], [type])
+    SELECT 
+        [key],
+        [value],
+        [type]
+    FROM OPENJSON(@JsonArray1)
+    
+    INSERT INTO @Array2 ([position], [value], [type])
+    SELECT 
+        [key],
+        [value],
+        [type]
+    FROM OPENJSON(@JsonArray2)
+    
+    -- Check counts
+    DECLARE @Count1 INT, @Count2 INT
+
+    SELECT @Count1 = COUNT(*) FROM @Array1
+    SELECT @Count2 = COUNT(*) FROM @Array2
+    
+    IF (@Count1 != @Count2)
+        RETURN 0;
+    
+	-- Check count of items based on their type
+    WITH
+		Counts1 AS
+		(
+			SELECT [type], COUNT(*) AS [count] FROM @Array1 GROUP BY [type]
+		),
+		Counts2 AS
+		(
+			SELECT [type], COUNT(*) AS [count] FROM @Array2 GROUP BY [type]
+		),
+		AllItems AS
+		(
+			SELECT * FROM Counts1
+			UNION
+			SELECT * FROM Counts2
+		),
+		Comparison AS
+		(
+			SELECT 
+				AI.[type],
+				ISNULL(C1.[count], 0) AS Count1,
+				ISNULL(C2.[count], 0) AS Count2
+			FROM AllItems AI
+				LEFT JOIN Counts1 C1 ON AI.[type] = C1.[type]
+				LEFT JOIN Counts2 C2 ON AI.[type] = C2.[type]
+		)
+    SELECT @Result = CASE 
+        WHEN EXISTS (SELECT 1 FROM Comparison WHERE Count1 != Count2) THEN 0 
+        ELSE 1 
+    END;
+
+	IF @Result = 1
+	WITH
+		Sorted1 AS (SELECT * FROM @Array1),
+		Sorted2 AS (SELECT * FROM @Array2)
+	SELECT @Result = CASE 
+		WHEN EXISTS
+		(
+			SELECT 1
+			FROM Sorted1 s1
+				INNER JOIN Sorted2 s2 ON s1.[position] = s2.[position]
+			WHERE s1.[type] != s2.[type]
+				OR (s1.[type] in (0,1,2,3) and s1.[value] != s2.[value])	-- null, number, boolean, string
+				OR (s1.[type] = 4 and m.json_array_equals(s1.[value], s2.[value]) = 0)	-- array
+				OR (s1.[type] = 5 and m.json_object_equals(s1.[value], s2.[value]) = 0)	-- object
+		) THEN 0 
+		ELSE 1 
+	END
+    
+    
+    RETURN @Result
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/json_equals.sql
+-- ---------------------------------------------
+create or alter function m.json_equals
+(
+    @Json1 NVARCHAR(MAX),
+    @Json2 NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @Result BIT = 0
+    
+    -- Handle NULL cases
+    IF (@Json1 IS NULL AND @Json2 IS NULL)
+        RETURN 1
+    
+    IF (@Json1 IS NULL OR @Json2 IS NULL)
+        RETURN 0
+    
+    -- Handle empty strings
+    DECLARE @TrimmedJson1 NVARCHAR(MAX) = LTRIM(RTRIM(@Json1))
+    DECLARE @TrimmedJson2 NVARCHAR(MAX) = LTRIM(RTRIM(@Json2))
+    
+    IF (@TrimmedJson1 = '' AND @TrimmedJson2 = '')
+        RETURN 1
+        
+    IF (@TrimmedJson1 = '' OR @TrimmedJson2 = '')
+        RETURN 0
+    
+    -- Validate JSON format
+    IF (ISJSON(@Json1) = 0 OR ISJSON(@Json2) = 0)
+        RETURN 0
+    
+    -- Fast path: identical strings
+    IF (@TrimmedJson1 = @TrimmedJson2)
+        RETURN 1
+    
+    -- Check JSON types
+    DECLARE @FirstChar1 CHAR(1) = LEFT(@TrimmedJson1, 1)
+    DECLARE @FirstChar2 CHAR(1) = LEFT(@TrimmedJson2, 1)
+    
+    -- Different JSON types
+    IF (@FirstChar1 != @FirstChar2)
+        RETURN 0
+    
+    -- Arrays
+    IF (@FirstChar1 = '[')
+        RETURN m.json_array_equals(@Json1, @Json2)
+    
+    -- Objects
+    IF (@FirstChar1 = '{')
+        RETURN m.json_object_equals(@Json1, @Json2)
+    
+    -- Scalars
+    RETURN CASE WHEN @TrimmedJson1 = @TrimmedJson2 THEN 1 ELSE 0 END
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/json_object_equals.sql
+-- ---------------------------------------------
+create or alter function m.json_object_equals
+(
+    @Json1 NVARCHAR(MAX),
+    @Json2 NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @Result BIT = 0
+    
+    -- Use table variables instead of temp tables
+    DECLARE @Object1 TABLE
+	(
+		[position] INT,
+        [name] NVARCHAR(400),
+        [type] INT,
+        [value] NVARCHAR(MAX)
+    )
+    
+    DECLARE @Object2 TABLE
+	(
+		[position] INT,
+        [name] NVARCHAR(400),
+        [type] INT,
+        [value] NVARCHAR(MAX)
+    )
+    
+    -- Parse JSON objects
+    INSERT INTO @Object1 ([position], [name], [type], [value])
+    SELECT
+		ROW_NUMBER() OVER (ORDER BY [key]),
+		[key],
+		[type],
+		[value]
+    FROM OPENJSON(@Json1)
+    ORDER BY [key]
+    
+    INSERT INTO @Object2 ([position], [name], [type], [value])
+    SELECT
+		ROW_NUMBER() OVER (ORDER BY [key]),
+		[key],
+		[type],
+		[value]
+    FROM OPENJSON(@Json2)
+    ORDER BY [key]
+    
+    -- Check property count
+    DECLARE @Count1 INT, @Count2 INT
+
+    SELECT @Count1 = COUNT(*) FROM @Object1
+    SELECT @Count2 = COUNT(*) FROM @Object2
+    
+    IF (@Count1 != @Count2)
+        RETURN 0;
+    
+    WITH
+		Sorted1 AS (SELECT * FROM @Object1),
+		Sorted2 AS (SELECT * FROM @Object2)
+    SELECT @Result = CASE 
+        WHEN EXISTS (
+            SELECT 1
+            FROM Sorted1 s1
+            INNER JOIN Sorted2 s2 ON s1.[position] = s2.[position]
+            WHERE s1.[name] != s2.[name] 
+                OR s1.[type] != s2.[type]
+                OR (s1.[type] in (0,1,2,3) and s1.[value] != s2.[value])	-- null, number, boolean, string
+				OR (s1.[type] = 4 and m.json_array_equals(s1.[value], s2.[value]) = 0)	-- array
+				OR (s1.[type] = 5 and m.json_object_equals(s1.[value], s2.[value]) = 0)	-- object
+        ) THEN 0 
+        ELSE 1 
+    END
+    
+    RETURN @Result
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/list_equals.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION m.list_equals
+(
+    @List1 NVARCHAR(MAX),
+    @List2 NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @Result BIT = 0
+    
+    IF (trim(isnull(@List1, '')) = '' AND trim(isnull(@List2, '')) = '')
+        RETURN 1
+        
+    IF (trim(isnull(@List1, '')) = '' OR trim(isnull(@List2, '')) = '')
+        RETURN 0
+    
+    -- Split strings into tables and compare
+    ;WITH CTE_List1 AS (
+        SELECT trim(value) AS Item
+        FROM STRING_SPLIT(@List1, ',')
+    ),
+    CTE_List2 AS (
+        SELECT trim(value) AS Item
+        FROM STRING_SPLIT(@List2, ',')
+    ),
+    CTE_List1_Counts AS (
+        SELECT Item, COUNT(*) AS Count
+        FROM CTE_List1
+        GROUP BY Item
+    ),
+    CTE_List2_Counts AS (
+        SELECT Item, COUNT(*) AS Count
+        FROM CTE_List2
+        GROUP BY Item
+    ),
+    CTE_AllItems AS (
+        SELECT Item FROM CTE_List1
+        UNION
+        SELECT Item FROM CTE_List2
+    ),
+    CTE_Comparison AS (
+        SELECT 
+            AI.Item,
+            ISNULL(L1.Count, 0) AS Count1,
+            ISNULL(L2.Count, 0) AS Count2
+        FROM CTE_AllItems AI
+        LEFT JOIN CTE_List1_Counts L1 ON AI.Item = L1.Item
+        LEFT JOIN CTE_List2_Counts L2 ON AI.Item = L2.Item
+    )
+    SELECT @Result = CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM CTE_Comparison 
+            WHERE Count1 != Count2
+        ) THEN 0 
+        ELSE 1 
+    END
+    
+    RETURN @Result
+END
+
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/pad_left.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.pad_left
+-- =============================================
+-- Left-pads @x with @ch until it reaches @size characters.
+--
+-- "Characters" are UTF-16 code units, matching len() and datalength()/2.
+-- A character outside the BMP (e.g. an emoji) counts as 2.
+--
+-- If @x is null, returns null. If @size is null or <= 0, or if @x is
+-- already at least @size wide, returns @x unchanged.
+--
+-- Examples:
+--   pad_left(N'7',   N'0', 3)  -> N'007'
+--   pad_left(N'123', N'0', 3)  -> N'123'
+--   pad_left(N'1',   N'0', 0)  -> N'1'
+--   pad_left(NULL,   N'0', 3)  -> NULL
+-- =============================================
+create or alter function m.pad_left
+(
+    @x    nvarchar(max),
+    @ch   nchar(1),
+    @size int
+)
+returns nvarchar(max)
+as
+begin
+    if @x is null return null;
+    if @size is null or @size <= 0 return @x;
+    if (datalength(@x) / 2) >= @size return @x;
+
+    return replicate(@ch, @size - (datalength(@x) / 2)) + @x;
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/pad_right.sql
+-- ---------------------------------------------
+create or alter function m.pad_right
+(
+    @x    nvarchar(max),
+    @ch   nchar(1),
+    @size int
+)
+returns nvarchar(max)
+as
+begin
+    if @x is null return null;
+    if @size is null or @size <= 0 return @x;
+    if (datalength(@x) / 2) >= @size return @x;
+
+    return @x + replicate(@ch, @size - (datalength(@x) / 2));
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/quote.sql
+-- ---------------------------------------------
+create or alter function m.quote(@value nvarchar(max))
+returns nvarchar(max)
+as
+begin
+    return isnull(N'''' + @value + N'''', N'NULL');
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/shift_left.sql
+-- ---------------------------------------------
+create or alter function m.shift_left(@a bigint, @n tinyint)
+returns bigint
+as
+begin
+	return
+	(
+		case
+			when isnull(@n, 0) <= 0 then @a
+			when isnull(@n, 0) = 63 then -9223372036854775808
+			when isnull(@n, 0) > 63 then cast(0 as bigint)
+			else
+				@a * power(cast(2 as bigint), @n)
+		end
+	)
+end
+
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/shift_right.sql
+-- ---------------------------------------------
+create or alter function m.shift_right(@a bigint, @n tinyint)
+returns bigint
+as
+begin
+	return
+	(
+		case
+			when isnull(@n, 0) <= 0 then @a
+			else
+				@a / power(2, @n)
+		end
+	)
+end
+
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/string_equals.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.string_equals
+-- =============================================
+-- Returns 1 if @a and @b are equal under the requested options.
+--
+-- @trim       1 = trim both values before comparing
+-- @ignoreCase 1 = case-insensitive comparison
+--             0 = case-sensitive comparison
+--
+-- Null is treated as the empty string, so string_equals(NULL, '') = 1.
+-- That matches the two-value semantics of a string comparison; if a
+-- caller needs null to be distinct from '', check @a IS NULL and @b IS
+-- NULL before calling.
+--
+-- Examples:
+--   string_equals(N' a ', N'a',   1, 1) -> 1   -- trim + CI
+--   string_equals(N'a',   N'A',   0, 1) -> 1
+--   string_equals(N'a',   N'A',   0, 0) -> 0
+-- =============================================
+create or alter function m.string_equals
+(
+    @a          nvarchar(max),
+    @b          nvarchar(max),
+    @trim       bit,
+    @ignoreCase bit
+)
+returns bit
+as
+begin
+    set @a = isnull(@a, N'');
+    set @b = isnull(@b, N'');
+
+    if @trim = 1
+    begin
+        set @a = trim(@a);
+        set @b = trim(@b);
+    end
+
+    if @ignoreCase = 1
+        return case
+            when @a collate Latin1_General_CI_AS
+               = @b collate Latin1_General_CI_AS then 1
+            else 0
+        end;
+
+    return case
+        when @a collate Latin1_General_CS_AS
+           = @b collate Latin1_General_CS_AS then 1
+        else 0
+    end;
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/trim_both.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.trim_both
+-- =============================================
+-- Removes every leading and trailing character in @chars from @s.
+-- Equivalent to TRIM(@chars FROM @s) on SQL Server 2022, and to
+-- m.trim_left(m.trim_right(@s, @chars), @chars)
+-- on older versions.
+-- =============================================
+create or alter function m.trim_both
+(
+    @s     nvarchar(max),
+    @chars nvarchar(100)
+)
+returns nvarchar(max)
+as
+begin
+    return m.trim_left(m.trim_right(@s, @chars), @chars);
+end
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_left.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.trim_left
+-- =============================================
+-- Removes every leading character in @chars from @s.
+-- Portable replacement for the SQL Server 2022 LEADING form of TRIM.
+--
+-- Examples:
+--   trim_left(N'000124',   N'0')  -> N'124'
+--   trim_left(N'   hello', N' ')  -> N'hello'
+--   trim_left(N'xxabc',    N'x')  -> N'abc'
+--   trim_left(NULL,        N'0')  -> NULL
+-- =============================================
+create or alter function m.trim_left
+(
+    @s     nvarchar(max),
+    @chars nvarchar(100)
+)
+returns nvarchar(max)
+as
+begin
+    if @s is null or @chars is null or @chars = N''
+        return @s;
+
+    declare @i int = 1;
+    declare @n int = len(@s);
+
+    while @i <= @n and charindex(substring(@s, @i, 1), @chars) > 0
+        set @i += 1;
+
+    return substring(@s, @i, @n - @i + 1);
+end
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_right.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.trim_right
+-- =============================================
+-- Removes every trailing character in @chars from @s.
+-- Portable replacement for the SQL Server 2022 TRAILING form of TRIM.
+--
+-- Examples:
+--   trim_right(N'124.23000', N'0')  -> N'124.23'
+--   trim_right(N'hello   ',  N' ')  -> N'hello'
+--   trim_right(N'abcxx',     N'x')  -> N'abc'
+--   trim_right(NULL,         N'0')  -> NULL
+-- =============================================
+create or alter function m.trim_right
+(
+    @s     nvarchar(max),
+    @chars nvarchar(100)
+)
+returns nvarchar(max)
+as
+begin
+    if @s is null or @chars is null or @chars = N''
+        return @s;
+
+    declare @i int = len(@s);
+
+    while @i > 0 and charindex(substring(@s, @i, 1), @chars) > 0
+        set @i -= 1;
+
+    return left(@s, @i);
+end
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_trailing_zeros.sql
+-- ---------------------------------------------
+create or alter function m.trim_trailing_zeros(@s nvarchar(max))
+returns nvarchar(max)
+as
+begin
+    while len(@s) > 0 and right(@s, 1) = '0'
+        set @s = left(@s, len(@s) - 1);
+    if right(@s, 1) = '.'
+        set @s = left(@s, len(@s) - 1);
+    return @s;
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/varbinary_to_base64.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.varbinary_to_base64
+-- =============================================
+-- Encodes varbinary to a base64 string.
+--
+-- Examples:
+--   varbinary_to_base64(0x68656C6C6F) -> N'aGVsbG8='
+--   varbinary_to_base64(0x)           -> N''
+--   varbinary_to_base64(NULL)         -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION [m].[varbinary_to_base64]
+(
+	 @Value		VARBINARY(MAX)
+) 
+RETURNS VARCHAR(MAX)
+AS
+BEGIN
+	if @value is null return null;
+
+    return cast(N'' as xml).value('xs:base64Binary(sql:variable("@value"))', 'nvarchar(max)');
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/varbinary_to_hex.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.varbinary_to_hex
+-- =============================================
+-- Encodes varbinary to an uppercase hexadecimal string.
+--
+-- The output is the hex digits without the 0x prefix (the format accepted
+-- by hex_to_varbinary). xs:hexBinary emits uppercase; wrap with
+-- lower(varbinary_to_hex(@v)) if you need lowercase.
+--
+-- Examples:
+--   varbinary_to_hex(0xAB)     -> N'AB'
+--   varbinary_to_hex(0xABCD)   -> N'ABCD'
+--   varbinary_to_hex(0x)       -> N''
+--   varbinary_to_hex(NULL)     -> NULL
+-- =============================================
+create or alter function m.varbinary_to_hex
+(
+    @v varbinary(max)
+)
+returns nvarchar(max)
+as
+begin
+    if @v is null return null;
+
+    return cast(N'' as xml).value(
+        'xs:hexBinary(sql:variable("@v"))',
+        'nvarchar(max)'
+    );
+end
+go
+
 
 -- ---------------------------------------------
 -- functions/_rtrim_chars.sql
@@ -43,6 +1028,8 @@ BEGIN
     RETURN LEFT(@s, @i);
 END
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/parse_table_name.sql
@@ -110,6 +1097,7 @@ begin
 	return
 end
 go
+
 
 -- ---------------------------------------------
 -- functions/parse_column_name.sql
@@ -179,6 +1167,7 @@ end
 
 go
 
+
 -- ---------------------------------------------
 -- functions/_normalize_default.sql
 -- ---------------------------------------------
@@ -222,6 +1211,8 @@ BEGIN
     RETURN @v;
 END;
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/_parse_column_list.sql
@@ -342,6 +1333,8 @@ WHERE NOT EXISTS (SELECT 1 FROM parts WHERE column_part IS NOT NULL)
   AND pc.[column] IS NOT NULL;
 GO
 
+go
+
 -- ---------------------------------------------
 -- functions/default_exists.sql
 -- ---------------------------------------------
@@ -414,6 +1407,8 @@ BEGIN
     RETURN CASE WHEN @actual_norm = @expected_norm THEN 1 ELSE 0 END;
 END;
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/foreign_key_exists.sql
@@ -517,6 +1512,15 @@ BEGIN
 END;
 GO
 
+go
+
+-- ---------------------------------------------
+-- functions/primary_key_exists.sql
+-- ---------------------------------------------
+
+
+go
+
 -- ---------------------------------------------
 -- functions/column_default.sql
 -- ---------------------------------------------
@@ -581,6 +1585,8 @@ BEGIN
 END;
 GO
 
+go
+
 -- ---------------------------------------------
 -- functions/column_info.sql
 -- ---------------------------------------------
@@ -596,72 +1602,115 @@ GO
 --   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
 --   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
 --
--- Columns returned:
---   db, schema_name, table_name, column_name
---   type_name, type_id, user_type_id, system_type_id
---   max_length, precision, scale, collation_name
---   is_nullable, is_identity, is_computed, is_sparse
---   is_filestream, is_xml, is_rowguidcol
---   default_definition, computed_definition
---   column_description
+-- Notes:
+--   - max_length is the raw sys.columns value, in bytes; -1 means (max).
+--   - length is the character count for nchar/nvarchar, the byte count
+--     for char/varchar/binary/varbinary, and -1 for (max). It is
+--     determined from system_type_id so UDTs based on those types are
+--     handled correctly.
+--   - is_xml is 1 for the xml system type; is_xml_document is the
+--     separate flag from sys.columns that constrains the xml to document
+--     form.
+--   - default_value is normalized via _normalize_default; default_name
+--     is the raw constraint name.
 -- =============================================
-CREATE OR ALTER FUNCTION m.column_info
+create or alter function m.column_info
 (
     @name nvarchar(1000)
 )
-RETURNS TABLE
-AS
-RETURN
+returns @result table
 (
-    SELECT
-        [db]                = ISNULL(p.[db], DB_NAME()),
+    [db]                nvarchar(1000),
+    schema_name         nvarchar(500),
+    table_name          nvarchar(500),
+    column_name         nvarchar(500),
+    column_id           int,
+    type_name           nvarchar(500),
+    type_schema_id      int,
+    type_schema_name    nvarchar(500),
+    user_type_id        int,
+    system_type_id      int,
+    max_length          int,
+    [length]            int,
+    [precision]         int,
+    scale               int,
+    collation_name      nvarchar(500),
+    is_nullable         bit,
+    is_identity         bit,
+    is_computed         bit,
+    is_persisted        bit,
+    is_sparse           bit,
+    is_filestream       bit,
+    is_xml              bit,
+    is_xml_document     bit,
+    is_rowguidcol       bit,
+    default_value       nvarchar(max),
+    default_name        nvarchar(500),
+    computed_definition nvarchar(max),
+    column_description  nvarchar(max)
+)
+begin
+    with parsed as
+    (
+        select
+            [db], [schema], [table], [column],
+            object_id = object_id(
+                quotename(isnull([db], db_name()))
+              + N'.' + quotename(isnull([schema], N'dbo'))
+              + N'.' + quotename([table]))
+        from m.parse_column_name(@name)
+    )
+    insert @result
+    select
+        [db]                = isnull(p.[db], db_name()),
         schema_name         = p.[schema],
         table_name          = p.[table],
         column_name         = p.[column],
-
+        column_id           = c.column_id,
         type_name           = t.name,
-        type_id             = c.system_type_id,
+        type_schema_id      = t.schema_id,
+        type_schema_name    = schema_name(t.schema_id),
         user_type_id        = c.user_type_id,
         system_type_id      = c.system_type_id,
-
         max_length          = c.max_length,
+        [length]            = case
+                                  when c.max_length = -1 then -1
+                                  when c.system_type_id in (231, 239) then c.max_length / 2
+                                  when c.system_type_id in (165, 167, 173, 175) then c.max_length
+                                  else 0
+                              end,
         [precision]         = c.[precision],
         scale               = c.scale,
         collation_name      = c.collation_name,
-
         is_nullable         = c.is_nullable,
         is_identity         = c.is_identity,
         is_computed         = c.is_computed,
+        is_persisted        = isnull(cc.is_persisted, 0),
         is_sparse           = c.is_sparse,
         is_filestream       = c.is_filestream,
-        is_xml              = CASE WHEN t.name = N'xml' THEN 1 ELSE 0 END,
+        is_xml              = case when c.system_type_id = 241 then 1 else 0 end,
+        is_xml_document     = c.is_xml_document,
         is_rowguidcol       = c.is_rowguidcol,
-
-        default_definition  = dc.definition,
+        default_value       = m._normalize_default(dc.definition),
+        default_name        = dc.name,
         computed_definition = cc.definition,
-        column_description  = CAST(ep.value AS nvarchar(max))
-    FROM m.parse_column_name(@name) p
-    JOIN sys.columns c
-      ON c.object_id = OBJECT_ID(
-            QUOTENAME(ISNULL(p.[db], DB_NAME())) + N'.'
-          + QUOTENAME(p.[schema]) + N'.'
-          + QUOTENAME(p.[table]), N'U')
-     AND c.name = p.[column]
-    JOIN sys.types t
-      ON t.user_type_id = c.user_type_id
-    LEFT JOIN sys.default_constraints dc
-      ON dc.parent_object_id = c.object_id
-     AND dc.parent_column_id = c.column_id
-    LEFT JOIN sys.computed_columns cc
-      ON cc.object_id = c.object_id
-     AND cc.column_id = c.column_id
-    LEFT JOIN sys.extended_properties ep
-      ON ep.major_id = c.object_id
-     AND ep.minor_id = c.column_id
-     AND ep.name = N'MS_Description'
-     AND ep.class = 1
-);
-GO
+        column_description  = cast(ep.value as nvarchar(max))
+    from             parsed                   as p
+          inner join sys.columns              as c    on  c.object_id = p.object_id
+                                                          and c.name = p.[column]
+          inner join sys.types                as t    on  t.user_type_id = c.user_type_id
+          left  join sys.default_constraints  as dc   on  dc.parent_object_id = c.object_id
+                                                          and dc.parent_column_id = c.column_id
+          left  join sys.computed_columns     as cc   on  cc.object_id = c.object_id
+                                                          and cc.column_id = c.column_id
+          left  join sys.extended_properties  as ep   on  ep.major_id = c.object_id
+                                                          and ep.minor_id = c.column_id
+                                                          and ep.name = N'MS_Description'
+                                                          and ep.class = 1
+  return;
+end
+
+go
 
 -- ---------------------------------------------
 -- functions/column_api.sql
@@ -841,6 +1890,8 @@ BEGIN
 END;
 GO
 
+go
+
 -- ---------------------------------------------
 -- functions/column_type.sql
 -- ---------------------------------------------
@@ -869,6 +1920,8 @@ RETURN
     FROM m.column_info(@name)
 );
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/table_exists.sql
@@ -935,6 +1988,8 @@ BEGIN
 END;
 GO
 
+go
+
 -- ---------------------------------------------
 -- functions/column_exists.sql
 -- ---------------------------------------------
@@ -990,6 +2045,8 @@ BEGIN
     RETURN 1;
 END;
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/parse_column_type.sql
@@ -1338,6 +2395,7 @@ RETURN
 );
 go
 
+
 -- ---------------------------------------------
 -- functions/column_dependencies.sql
 -- ---------------------------------------------
@@ -1508,6 +2566,8 @@ RETURN
     WHERE dependency IS NOT NULL
 );
 GO
+
+go
 
 -- ---------------------------------------------
 -- functions/column_type_change.sql
@@ -1827,6 +2887,8 @@ RETURN
 );
 GO
 
+go
+
 -- ---------------------------------------------
 -- procedures/create_default.sql
 -- ---------------------------------------------
@@ -1974,6 +3036,8 @@ BEGIN
         + @full_name + N'.' + QUOTENAME(@col) + '.';
 END;
 GO
+
+go
 
 -- ---------------------------------------------
 -- procedures/create_column.sql
@@ -2582,3 +3646,5 @@ BEGIN
     END CATCH
 END
 GO
+
+go

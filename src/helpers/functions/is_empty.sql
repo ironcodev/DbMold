@@ -1,4 +1,4 @@
-create or alter function $(SchemaName).is_empty(@value nvarchar(max))
+create or alter function $(SchemaName).is_empty(@x nvarchar(max))
 returns bit
 as
 begin

@@ -15,8 +15,8 @@ CREATE OR ALTER FUNCTION [$(SchemaName)].[varbinary_to_base64]
 RETURNS VARCHAR(MAX)
 AS
 BEGIN
-	if @v is null return null;
+	if @value is null return null;
 
-    return cast(N'' as xml).value('xs:base64Binary(sql:variable("@v"))', 'nvarchar(max)');
+    return cast(N'' as xml).value('xs:base64Binary(sql:variable("@value"))', 'nvarchar(max)');
 END
 GO

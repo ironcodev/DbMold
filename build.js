@@ -47,6 +47,11 @@ function buildForSchema(schemaName, files) {
     parts.push(`-- ---------------------------------------------`);
     parts.push(replaced.trimEnd());
     parts.push("");
+
+    if (!replaced.trimEnd().endsWith("go")) {
+      parts.push("go");
+    }
+    parts.push("");
   }
 
   return parts.join("\n");

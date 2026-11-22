@@ -7,7 +7,7 @@ as
 begin
 	declare @result bit
 
-	set @result = $(SchemaName).isEmpty(@x)
+	set @result = $(SchemaName).is_empty(@x)
 
 	if @result = 0
 	begin
@@ -27,15 +27,15 @@ begin
 				set @result = 0
 			else
 			if @left = ''
-				set @result = $(SchemaName).isInteger(@right)
+				set @result = $(SchemaName).is_integer(@right)
 			else
 			if @right = ''
-				set @result = $(SchemaName).isInteger(@left)
+				set @result = $(SchemaName).is_integer(@left)
 			else
-				set @result = $(SchemaName).isInteger(@left) & $(SchemaName).isInteger(@right)
+				set @result = $(SchemaName).is_integer(@left) & $(SchemaName).is_integer(@right)
 		end
 		else
-			set @result = $(SchemaName).isInteger(@x)
+			set @result = $(SchemaName).is_integer(@x)
 	end
 	else
 		set @result = 0

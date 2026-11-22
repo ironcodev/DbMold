@@ -7,3 +7,4 @@ as
 begin
 	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
 end
+go

@@ -10,7 +10,7 @@
 -- =============================================
 CREATE OR ALTER FUNCTION [$(SchemaName)].[base64_to_varbinary]
 (
-	 @Value		VARCHAR(MAX)
+	 @s		VARCHAR(MAX)
 ) 
 RETURNS VARBINARY(MAX)
 AS

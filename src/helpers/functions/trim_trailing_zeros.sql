@@ -1,4 +1,4 @@
-create or alter function $(SchemaName).trim_trailing_zeros (@s nvarchar(max))
+create or alter function $(SchemaName).trim_trailing_zeros(@s nvarchar(max))
 returns nvarchar(max)
 as
 begin
