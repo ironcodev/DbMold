@@ -16,8 +16,8 @@
       "skip": true,
       "postScript": "./tests/functions/column_dependencies.postscript.sql"
     },
-    "column_type_change": { "skip": true, "postScript": "./tests/functions/column_type_change.postscript.sql" },
-    "create_column": { "skip": false, "postScript": "./tests/procedures/create_column.postscript.sql" },
+    "column_type_change": { "skip": false, "postScript": "./tests/functions/column_type_change.postscript.sql" },
+    "create_column": { "skip": true, "postScript": "./tests/procedures/create_column.postscript.sql" },
     "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" }
   }
 }

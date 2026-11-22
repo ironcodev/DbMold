@@ -402,16 +402,15 @@ AS
 BEGIN
     EXEC dbo.column_api_setup;
 
-    DECLARE @type sysname, @systm_type_id int, @user_type_id int, @system_type_id int;
+    DECLARE @type sysname, @user_type_id int, @system_type_id int;
     SELECT
         @type = type_name,
-        @systm_type_id = systm_type_id,
         @user_type_id = user_type_id,
         @system_type_id = system_type_id
     FROM $(SchemaName).column_type(N'dbo.__sstr_cp_tbl.Id');
 
     EXEC Assert.Equals @type, 'int';
-    EXEC Assert.Equals @systm_type_id, 56;          -- int = 56
+    EXEC Assert.Equals @system_type_id, 56;          -- int = 56
     EXEC Assert.Equals @user_type_id, 56;
     EXEC Assert.Equals @system_type_id, 56;
 

@@ -2775,12 +2775,21 @@ RETURN
                         WHEN c.same_char_fam = 1 THEN
                             CASE
                                 WHEN c.f_type IN (N'char', N'varchar')
-                                     AND c.t_type IN (N'nchar', N'nvarchar')
-                                     AND (c.t_chars = -1 OR (c.f_chars <> -1 AND c.t_chars >= c.f_chars))
+                                    AND c.t_type IN (N'nchar', N'nvarchar')
+                                    AND (c.t_chars = -1 OR (c.f_chars <> -1 AND c.t_chars >= c.f_chars))
                                     THEN N'widening'
                                 WHEN c.f_type IN (N'nchar', N'nvarchar')
-                                     AND c.t_type IN (N'char', N'varchar')
+                                    AND c.t_type IN (N'char', N'varchar')
                                     THEN N'lateral'
+
+                                ELSE N'narrowing'
+                            END
+
+                        WHEN c.f_type = N'char' AND c.t_type = N'nvarchar' THEN
+                            CASE
+                                WHEN c.t_chars = -1 THEN N'widening'
+                                WHEN c.f_chars <> -1 AND c.t_chars >= c.f_chars
+                                    THEN N'widening'
                                 ELSE N'narrowing'
                             END
 
