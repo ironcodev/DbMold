@@ -6,6 +6,7 @@
     "column_info": { "skip": true, "postScript": "./tests/functions/column_info.postscript.sql" },
     "default_exists": { "skip": true, "postScript": "./tests/functions/default_exists.postscript.sql" },
     "foreign_key_exists": { "skip": true, "postScript": "./tests/functions/foreign_key_exists.postscript.sql" },
+    "primary_key_exists": { "skip": true, "postScript": "./tests/functions/primary_key_exists.postscript.sql" },
     "parse_column_name": { "skip": true },
     "parse_column_type": { "skip": true, "postScript": "./tests/functions/parse_column_type.postscript.sql" },
     "parse_table_name": { "skip": true },
