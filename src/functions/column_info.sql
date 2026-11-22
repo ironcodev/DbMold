@@ -16,7 +16,7 @@
 --   max_length, precision, scale, collation_name
 --   is_nullable, is_identity, is_computed, is_sparse
 --   is_filestream, is_xml, is_rowguidcol
---   default_definition, computed_definition
+--   default_value, computed_definition
 --   column_description
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_info
@@ -33,12 +33,16 @@ RETURN
         table_name          = p.[table],
         column_name         = p.[column],
 
-        type_name           = t.name,
+			  column_id			      = c.column_id,
         type_id             = c.system_type_id,
+        type_name           = t.name,
+        type_schema_id      = t.schema_id,
+        type_schema_name    = schema_name(t.schema_id),
         user_type_id        = c.user_type_id,
         system_type_id      = c.system_type_id,
 
         max_length          = c.max_length,
+			  [length]      			= case when t.name in ('nchar', 'ntext', 'nvarchar') then c.max_length / 2 else c.max_length end,
         [precision]         = c.[precision],
         scale               = c.scale,
         collation_name      = c.collation_name,
@@ -46,12 +50,14 @@ RETURN
         is_nullable         = c.is_nullable,
         is_identity         = c.is_identity,
         is_computed         = c.is_computed,
+			  is_persisted		    = c.is_persisted,
         is_sparse           = c.is_sparse,
         is_filestream       = c.is_filestream,
-        is_xml              = CASE WHEN t.name = N'xml' THEN 1 ELSE 0 END,
+        is_xml              = c.is_xml_document,
         is_rowguidcol       = c.is_rowguidcol,
 
-        default_definition  = dc.definition,
+        default_value       = $(SchemaName)._normalize_default(dc.definition),
+        default_name        = dc.name,
         computed_definition = cc.definition,
         column_description  = CAST(ep.value AS nvarchar(max))
     FROM $(SchemaName).parse_column_name(@name) p

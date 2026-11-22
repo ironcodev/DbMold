@@ -11,6 +11,40 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'mold')
 GO
 
 -- ---------------------------------------------
+-- functions/_rtrim_chars.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold._rtrim_chars
+-- =============================================
+-- Removes any trailing characters in @chars from @s. Portable replacement for
+-- RTRIM(@s, @chars), which requires SQL Server 2022 / compat level 160+.
+--
+-- Examples:
+--   _rtrim_chars(N'Users.',   N'.')   -> N'Users'
+--   _rtrim_chars(N'Users..',  N'.')   -> N'Users'
+--   _rtrim_chars(N'Users.  ', N'. ')  -> N'Users'
+--   _rtrim_chars(NULL,        N'.')   -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION mold._rtrim_chars
+(
+    @s     nvarchar(max),
+    @chars nvarchar(100)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @s IS NULL OR @chars IS NULL OR @chars = N''
+        RETURN @s;
+
+    DECLARE @i int = LEN(@s);
+    WHILE @i > 0 AND CHARINDEX(SUBSTRING(@s, @i, 1), @chars) > 0
+        SET @i -= 1;
+
+    RETURN LEFT(@s, @i);
+END
+GO
+
+-- ---------------------------------------------
 -- functions/parse_table_name.sql
 -- ---------------------------------------------
 create or alter function mold.parse_table_name(@name nvarchar(1000))
@@ -212,7 +246,6 @@ WITH
                     ELSE 0
                 END
     ),
-    -- Generate 1..LEN(@name) without window functions in WHERE.
     nums AS
     (
         SELECT TOP (LEN(@name))
@@ -254,7 +287,9 @@ WITH
             table_part =
                 CASE
                     WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
-                        RTRIM(LEFT(@name, (SELECT open_pos FROM matching_open) - 1), N'.')
+                        mold._rtrim_chars(
+                            LEFT(@name, (SELECT open_pos FROM matching_open) - 1),
+                            N'.')
                     ELSE @name
                 END,
             column_part =

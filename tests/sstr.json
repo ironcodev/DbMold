@@ -12,12 +12,12 @@
     "table_exists": { "skip": true },
     "_normalize_default": { "skip": true },
     "_parse_column_list": { "skip": true },
-    "create_default": { "skip": true },
     "column_dependencies": {
-      "skip": false,
+      "skip": true,
       "postScript": "./tests/functions/column_dependencies.postscript.sql"
     },
     "column_type_change": { "skip": true, "postScript": "./tests/functions/column_type_change.postscript.sql" },
-    "create_column": { "skip": true }
+    "create_column": { "skip": false, "postScript": "./tests/procedures/create_column.postscript.sql" },
+    "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" }
   }
 }

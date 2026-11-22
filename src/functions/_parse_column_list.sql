@@ -18,7 +18,6 @@ WITH
                     ELSE 0
                 END
     ),
-    -- Generate 1..LEN(@name) without window functions in WHERE.
     nums AS
     (
         SELECT TOP (LEN(@name))
@@ -60,7 +59,9 @@ WITH
             table_part =
                 CASE
                     WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
-                        RTRIM(LEFT(@name, (SELECT open_pos FROM matching_open) - 1), N'.')
+                        $(SchemaName)._rtrim_chars(
+                            LEFT(@name, (SELECT open_pos FROM matching_open) - 1),
+                            N'.')
                     ELSE @name
                 END,
             column_part =

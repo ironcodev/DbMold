@@ -2,13 +2,45 @@
 # One file per line. Lines starting with # are ignored.
 
 00_schema.sql
+01_config.sql
+02_debug.sql
 
+helpers/fnctions/isEmpty.sql
+helpers/fnctions/isWhitespace.sql
+
+helpers/fnctions/base64_to_varbinary.sql
+helpers/fnctions/hex_to_varbinary.sql
+helpers/fnctions/is_decimal.sql
+helpers/fnctions/is_decimal0.sql
+helpers/fnctions/is_empty.sql
+helpers/fnctions/is_integer.sql
+helpers/fnctions/is_whitespace.sql
+helpers/fnctions/json_array_equals.sql
+helpers/fnctions/json_equals.sql
+helpers/fnctions/json_object_equals.sql
+helpers/fnctions/list_equals.sql
+helpers/fnctions/padleft.sql
+helpers/fnctions/padright.sql
+helpers/fnctions/quote.sql
+helpers/fnctions/shift_left.sql
+helpers/fnctions/shift_right.sql
+helpers/fnctions/string_equals.sql
+helpers/fnctions/trim_both.sql
+helpers/fnctions/trim_left.sql
+helpers/fnctions/trim_right.sql
+helpers/fnctions/trim_trailing_zeros.sql
+helpers/fnctions/varbinary_to_base64.sql
+helpers/fnctions/varbinary_to_hex.sql
+
+
+functions/_rtrim_chars.sql
 functions/parse_table_name.sql
 functions/parse_column_name.sql
 functions/_normalize_default.sql
 functions/_parse_column_list.sql
 functions/default_exists.sql
 functions/foreign_key_exists.sql
+functions/primary_key_exists.sql
 functions/column_default.sql
 functions/column_info.sql
 functions/column_api.sql

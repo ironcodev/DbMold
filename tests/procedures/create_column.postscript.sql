@@ -1,0 +1,1 @@
+exec dbo.create_column_teardown

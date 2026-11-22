@@ -35,6 +35,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_creates_simple_column
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Notes",
@@ -42,11 +44,17 @@ BEGIN
         "nullable": true
     }';
 
-    EXEC Assert.Equals $(SchemaName).column_exists(N'dbo.__sstr_cc_tbl.Notes'), 1;
+    declare @flag bit
+
+    set @flag = $(SchemaName).column_exists(N'dbo.__sstr_cc_tbl.Notes')
+
+    EXEC Assert.Equals @flag, 1;
 
     DECLARE @ci TABLE (type_name nvarchar(500), max_length int, is_nullable bit, is_identity bit);
-    INSERT @ci SELECT type_name, max_length, is_nullable, is_identity
-                FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Notes');
+
+    INSERT @ci(type_name, max_length, is_nullable, is_identity)
+    SELECT type_name, max_length, is_nullable, is_identity
+    FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Notes');
 
     DECLARE @tn nvarchar(500), @ml int, @null bit, @ident bit;
     SELECT @tn = type_name, @ml = max_length, @null = is_nullable, @ident = is_identity FROM @ci;
@@ -61,6 +69,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_creates_not_null_column
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Code",
@@ -84,6 +94,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_creates_identity_column
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Seq",
@@ -104,6 +116,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_creates_computed_column
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_data",
         "name": "Total",
@@ -128,6 +142,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_second_call_is_no_change
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     DECLARE @spec nvarchar(max) = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Notes",
@@ -157,6 +173,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_alters_varchar_to_wider
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -185,6 +203,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_alters_nullable_to_not_null_on_empty_table
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -215,6 +235,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_alters_varchar_to_narrower_when_data_fits
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -243,6 +265,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_toggles_sparse
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -274,6 +298,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_does_not_touch_default_when_absent
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -303,6 +329,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_replaces_default_when_value_differs
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -336,6 +364,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_dry_run_does_not_create
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     DECLARE @spec nvarchar(max) = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Ghost",
@@ -346,7 +376,9 @@ BEGIN
 
     EXEC $(SchemaName).create_column @spec = @spec;
 
-    EXEC Assert.Equals $(SchemaName).column_exists(N'dbo.__sstr_cc_tbl.Ghost'), 0;
+    declare @exists bit = $(SchemaName).column_exists(N'dbo.__sstr_cc_tbl.Ghost')
+
+    EXEC Assert.Equals @exists, 0;
 END
 GO
 
@@ -356,6 +388,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_unknown_type
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     DECLARE @err int = 0;
     BEGIN TRY
         EXEC $(SchemaName).create_column @spec = N'{
@@ -375,6 +409,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_missing_table
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     DECLARE @err int = 0;
     BEGIN TRY
         EXEC $(SchemaName).create_column @spec = N'{
@@ -394,6 +430,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_identity_change
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -421,6 +459,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_computed_change
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_data",
         "name": "Total2",
@@ -446,6 +486,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_forbidden_type_change
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_tbl",
         "name": "Tmp",
@@ -471,6 +513,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_narrowing_with_data
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_data",
         "name": "Tmp",
@@ -504,6 +548,8 @@ GO
 CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_not_null_with_nulls
 AS
 BEGIN
+    EXEC dbo.create_column_setup;
+    
     EXEC $(SchemaName).create_column @spec = N'{
         "table": "dbo.__sstr_cc_data",
         "name": "Tmp",
