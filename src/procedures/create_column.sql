@@ -213,9 +213,20 @@ BEGIN
         IF @computed = 0
         BEGIN
             INSERT @t
-            SELECT normalized_type, type_name, system_type_id, user_type_id,
-                   is_user_defined, is_valid, validation_error, collation_name,
-                   char_length, byte_length, precision, scale, fractional_scale
+            SELECT
+                normalized_type,
+                type_name,
+                system_type_id,
+                user_type_id,
+                is_user_defined,
+                is_valid,
+                validation_error,
+                collation_name,
+                char_length,
+                byte_length,
+                precision,
+                scale,
+                fractional_scale
             FROM $(SchemaName).parse_column_type(@type);
 
             IF (SELECT is_valid FROM @t) = 0
@@ -297,9 +308,8 @@ BEGIN
             ------------------------------------------------------------------
             DECLARE @ci TABLE (
                 type_name            nvarchar(500),
-                type_id              int,
-                user_type_id         int,
                 system_type_id       int,
+                user_type_id         int,
                 max_length           int,
                 [precision]          int,
                 scale                int,
@@ -308,15 +318,25 @@ BEGIN
                 is_identity          bit,
                 is_computed          bit,
                 is_sparse            bit,
-                default_definition   nvarchar(max),
+                default_value   nvarchar(max),
                 computed_definition  nvarchar(max)
             );
 
             INSERT @ci
-            SELECT type_name, type_id, user_type_id, system_type_id,
-                   max_length, [precision], scale, collation_name,
-                   is_nullable, is_identity, is_computed, is_sparse,
-                   default_definition, computed_definition
+            SELECT
+                type_name,
+                useid,
+                system_type_id,
+                max_length,
+                [precision],
+                scale,
+                collation_name,
+                is_nullable,
+                is_identity,
+                is_computed,
+                is_sparse,
+                default_value,
+                computed_definition
             FROM $(SchemaName).column_info(@full_column);
 
             DECLARE @cur TABLE (
@@ -330,13 +350,23 @@ BEGIN
                 is_identity         bit,
                 is_computed         bit,
                 is_sparse           bit,
-                default_definition  nvarchar(max),
+                default_value       nvarchar(max),
                 computed_definition nvarchar(max)
             );
             INSERT @cur
-            SELECT type_name, system_type_id, max_length, [precision], scale,
-                   collation_name, is_nullable, is_identity, is_computed,
-                   is_sparse, default_definition, computed_definition
+            SELECT
+                type_name,
+                system_type_id,
+                max_length,
+                [precision],
+                scale,
+                collation_name,
+                is_nullable,
+                is_identity,
+                is_computed,
+                is_sparse,
+                default_value,
+                computed_definition
             FROM @ci;
 
             ------------------------------------------------------------------

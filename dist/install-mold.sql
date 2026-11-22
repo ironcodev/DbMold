@@ -1590,6 +1590,8 @@ go
 -- ---------------------------------------------
 -- functions/column_info.sql
 -- ---------------------------------------------
+drop function if exists m.column_info;
+go
 -- =============================================
 -- mold.column_info
 -- =============================================
@@ -1902,7 +1904,7 @@ go
 -- or an empty result set if the column does not exist.
 --
 -- Columns returned:
---   type_name, type_id, user_type_id, system_type_id
+--   type_name, user_type_id, system_type_id
 -- =============================================
 CREATE OR ALTER FUNCTION mold.column_type
 (
@@ -1914,7 +1916,6 @@ RETURN
 (
     SELECT
         type_name,
-        type_id,
         user_type_id,
         system_type_id
     FROM mold.column_info(@name)
@@ -3341,7 +3342,7 @@ BEGIN
             ------------------------------------------------------------------
             DECLARE @ci TABLE (
                 type_name            nvarchar(500),
-                type_id              int,
+                system_type_id       int,
                 user_type_id         int,
                 system_type_id       int,
                 max_length           int,
@@ -3352,15 +3353,26 @@ BEGIN
                 is_identity          bit,
                 is_computed          bit,
                 is_sparse            bit,
-                default_definition   nvarchar(max),
+                default_value   nvarchar(max),
                 computed_definition  nvarchar(max)
             );
 
             INSERT @ci
-            SELECT type_name, type_id, user_type_id, system_type_id,
-                   max_length, [precision], scale, collation_name,
-                   is_nullable, is_identity, is_computed, is_sparse,
-                   default_definition, computed_definition
+            SELECT
+                type_name,
+                system_type_id,
+                useid,
+                system_type_id,
+                max_length,
+                [precision],
+                scale,
+                collation_name,
+                is_nullable,
+                is_identity,
+                is_computed,
+                is_sparse,
+                default_value,
+                computed_definition
             FROM mold.column_info(@full_column);
 
             DECLARE @cur TABLE (
@@ -3374,13 +3386,23 @@ BEGIN
                 is_identity         bit,
                 is_computed         bit,
                 is_sparse           bit,
-                default_definition  nvarchar(max),
+                default_value       nvarchar(max),
                 computed_definition nvarchar(max)
             );
             INSERT @cur
-            SELECT type_name, system_type_id, max_length, [precision], scale,
-                   collation_name, is_nullable, is_identity, is_computed,
-                   is_sparse, default_definition, computed_definition
+            SELECT
+                type_name,
+                system_type_id,
+                max_length,
+                [precision],
+                scale,
+                collation_name,
+                is_nullable,
+                is_identity,
+                is_computed,
+                is_sparse,
+                default_value,
+                computed_definition
             FROM @ci;
 
             ------------------------------------------------------------------

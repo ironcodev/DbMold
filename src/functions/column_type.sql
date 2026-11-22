@@ -5,7 +5,7 @@
 -- or an empty result set if the column does not exist.
 --
 -- Columns returned:
---   type_name, type_id, user_type_id, system_type_id
+--   type_name, user_type_id, system_type_id
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_type
 (
@@ -17,7 +17,6 @@ RETURN
 (
     SELECT
         type_name,
-        type_id,
         user_type_id,
         system_type_id
     FROM $(SchemaName).column_info(@name)
