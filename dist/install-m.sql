@@ -3258,9 +3258,20 @@ BEGIN
         IF @computed = 0
         BEGIN
             INSERT @t
-            SELECT normalized_type, type_name, system_type_id, user_type_id,
-                   is_user_defined, is_valid, validation_error, collation_name,
-                   char_length, byte_length, precision, scale, fractional_scale
+            SELECT
+                normalized_type,
+                type_name,
+                system_type_id,
+                user_type_id,
+                is_user_defined,
+                is_valid,
+                validation_error,
+                collation_name,
+                char_length,
+                byte_length,
+                precision,
+                scale,
+                fractional_scale
             FROM m.parse_column_type(@type);
 
             IF (SELECT is_valid FROM @t) = 0
@@ -3344,7 +3355,6 @@ BEGIN
                 type_name            nvarchar(500),
                 system_type_id       int,
                 user_type_id         int,
-                system_type_id       int,
                 max_length           int,
                 [precision]          int,
                 scale                int,
@@ -3361,8 +3371,7 @@ BEGIN
             SELECT
                 type_name,
                 system_type_id,
-                useid,
-                system_type_id,
+                user_type_id,
                 max_length,
                 [precision],
                 scale,

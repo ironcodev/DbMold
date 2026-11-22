@@ -325,8 +325,8 @@ BEGIN
             INSERT @ci
             SELECT
                 type_name,
-                useid,
                 system_type_id,
+                user_type_id,
                 max_length,
                 [precision],
                 scale,

@@ -78,7 +78,7 @@ BEGIN
     SELECT
         @type = type_name,
         @max_len = max_length,
-        @default = CAST(default_definition AS nvarchar(4000)),
+        @default = CAST(default_value AS nvarchar(4000)),
         @desc = CAST(column_description AS nvarchar(4000))
     FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Name');
 

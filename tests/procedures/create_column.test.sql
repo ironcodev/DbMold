@@ -79,12 +79,12 @@ BEGIN
         "default": "''x''"
     }';
 
-    DECLARE @ci TABLE (is_nullable bit, default_definition nvarchar(max));
-    INSERT @ci SELECT is_nullable, default_definition
+    DECLARE @ci TABLE (is_nullable bit, default_value nvarchar(max));
+    INSERT @ci SELECT is_nullable, default_value
                 FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Code');
 
     DECLARE @null bit, @def nvarchar(max);
-    SELECT @null = is_nullable, @def = default_definition FROM @ci;
+    SELECT @null = is_nullable, @def = default_value FROM @ci;
 
     EXEC Assert.Equals      @null, 0;
     EXEC Assert.MaxNotEquals @def, NULL;
@@ -316,11 +316,11 @@ BEGIN
         "nullable": true
     }';
 
-    DECLARE @ci TABLE (default_definition nvarchar(max));
-    INSERT @ci SELECT default_definition FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Tmp');
+    DECLARE @ci TABLE (default_value nvarchar(max));
+    INSERT @ci SELECT default_value FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Tmp');
 
     DECLARE @def nvarchar(max);
-    SELECT @def = default_definition FROM @ci;
+    SELECT @def = default_value FROM @ci;
 
     EXEC Assert.MaxNotEquals @def, NULL;
 END
@@ -347,11 +347,11 @@ BEGIN
         "default": "2"
     }';
 
-    DECLARE @ci TABLE (default_definition nvarchar(max));
-    INSERT @ci SELECT default_definition FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Tmp');
+    DECLARE @ci TABLE (default_value nvarchar(max));
+    INSERT @ci SELECT default_value FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Tmp');
 
     DECLARE @def nvarchar(max);
-    SELECT @def = default_definition FROM @ci;
+    SELECT @def = default_value FROM @ci;
 
     DECLARE @ok bit = CASE WHEN $(SchemaName)._normalize_default(@def) = N'2' THEN 1 ELSE 0 END;
     EXEC Assert.IsTrue @ok;
