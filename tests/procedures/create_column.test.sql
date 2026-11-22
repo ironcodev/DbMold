@@ -1,3 +1,6 @@
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
 -- =============================================
 -- Tests for $(SchemaName).create_column
 -- =============================================
