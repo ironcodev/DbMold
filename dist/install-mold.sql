@@ -3077,8 +3077,8 @@ go
 --     detail  human-readable summary, or the T-SQL that would be run for
 --             a dry run. On error, no row is returned; the caller gets a
 --             THROW instead. The status row is the pipeline's control
---             signal; a RAISERROR line carries the same information into
---             the message stream for human log readers.
+--             signal; informational messages are returned only through
+--             this result row (no duplicate message-stream output).
 --
 -- Behavior:
 --   CREATE  (column absent)
@@ -3171,7 +3171,7 @@ CREATE OR ALTER PROCEDURE mold.create_column
 AS
 BEGIN
     SET NOCOUNT ON;
-    SET XACT_ABORT ON;
+    SET XACT_ABORT OFF;
 
     ------------------------------------------------------------------
     -- 1. Parse @spec
@@ -3370,7 +3370,6 @@ BEGIN
 
                 IF @dry_run = 1
                 BEGIN
-                    RAISERROR(@ddl, 0, 1) WITH NOWAIT;
                     IF @started_transaction = 1
                         COMMIT TRANSACTION;
 
@@ -3384,7 +3383,6 @@ BEGIN
                     COMMIT TRANSACTION;
 
                 DECLARE @msg_new nvarchar(4000) = N'create_column: ' + @full_column + N' -> CREATED';
-                RAISERROR(@msg_new, 0, 1) WITH NOWAIT;
 
                 SELECT status = N'CREATED', detail = N'column added';
                 RETURN;
@@ -3561,10 +3559,15 @@ BEGIN
                             @needs_collation_check bit,
                             @reason nvarchar(4000);
 
-                    SELECT @cls, @needs_data_check, @needs_collation_check, @reason
+                    SELECT
+                        @cls = [class],
+                        @needs_data_check = requires_data_check,
+                        @needs_collation_check = requires_collation_check,
+                        @reason = reason
                     FROM mold.column_type_change(
                         @from_type, @from_length, @from_precision, @from_scale,
-                        @to_type,   @to_length,   @to_precision,   @to_scale);
+                        @to_type,   @to_length,   @to_precision,   @to_scale
+                    );
 
                     IF @cls = N'forbidden'
                     BEGIN
@@ -3575,17 +3578,38 @@ BEGIN
                     IF @needs_data_check = 1
                     BEGIN
                         DECLARE @bad int;
+
                         DECLARE @chk nvarchar(max) =
                             N'SELECT @b = COUNT(*) FROM ' + @full_table
-                            + N' WHERE ' + QUOTENAME(@name) + N' IS NOT NULL AND TRY_CAST('
-                            + QUOTENAME(@name) + N' AS ' + (SELECT normalized_type FROM @t) + N') IS NULL;';
-                        EXEC sp_executesql @chk, N'@b int OUTPUT', @b = @bad OUTPUT;
+                            + N' WHERE ' + QUOTENAME(@name) + N' IS NOT NULL AND ('
+                            + N'TRY_CAST(' + QUOTENAME(@name) + N' AS '
+                            + (SELECT normalized_type FROM @t) + N') IS NULL';
+
+                        -- Detect silent truncation when narrowing varchar or nvarchar.
+                        -- DATALENGTH measures bytes, which matches SQL Server's length
+                        -- semantics for these types.
+                        IF @from_type = @to_type
+                        AND @from_type IN (N'varchar', N'nvarchar')
+                        AND @to_length >= 0
+                        BEGIN
+                            SET @chk +=
+                                N' OR DATALENGTH(' + QUOTENAME(@name) + N') > @target_bytes';
+                        END
+
+                        SET @chk += N');';
+
+                        EXEC sp_executesql
+                            @chk,
+                            N'@b int OUTPUT, @target_bytes int',
+                            @b = @bad OUTPUT,
+                            @target_bytes = @to_length;
 
                         IF @bad > 0
                         BEGIN
                             DECLARE @msg_data nvarchar(2048) =
                                 N'create_column: ' + @reason
                                 + N' (' + CAST(@bad AS nvarchar(20)) + N' row(s) would not fit).';
+
                             ;THROW 50017, @msg_data, 1;
                         END
                     END
@@ -3648,7 +3672,6 @@ BEGIN
                 IF @started_transaction = 1
                     COMMIT TRANSACTION;
 
-                RAISERROR(N'create_column: no change', 0, 1) WITH NOWAIT;
                 SELECT status = N'NO CHANGE', detail = N'column already matches spec';
                 RETURN;
             END
@@ -3676,13 +3699,15 @@ BEGIN
 
             IF @alter_sparse = 1
                 SET @ddl2 += N'ALTER TABLE ' + @full_table
-                          + N' ALTER COLUMN ' + QUOTENAME(@name)
-                          + CASE WHEN @sparse = 1 THEN N' SPARSE' ELSE N' NOT SPARSE' END
-                          + N'; ';
+                        + N' ALTER COLUMN ' + QUOTENAME(@name)
+                        + CASE
+                                WHEN @sparse = 1 THEN N' ADD SPARSE'
+                                ELSE N' DROP SPARSE'
+                            END
+                        + N'; ';
 
             IF @dry_run = 1
             BEGIN
-                IF @ddl2 <> N'' RAISERROR(@ddl2, 0, 1) WITH NOWAIT;
 
                 IF @alter_default = 1
                 BEGIN
@@ -3693,7 +3718,6 @@ BEGIN
                         + CASE WHEN @default_name IS NOT NULL
                                     THEN N', @name = ' + QUOTENAME(@default_name, '''')
                                     ELSE N'' END + N';';
-                    RAISERROR(@dry_default, 0, 1) WITH NOWAIT;
                 END
 
                 IF @started_transaction = 1
@@ -3722,7 +3746,6 @@ BEGIN
                 COMMIT TRANSACTION;
 
             DECLARE @msg_alt nvarchar(4000) = N'create_column: ' + @full_column + N' -> ALTERED';
-            RAISERROR(@msg_alt, 0, 1) WITH NOWAIT;
 
             SELECT status = N'ALTERED', detail = @ddl2
                    + CASE WHEN @alter_default = 1
