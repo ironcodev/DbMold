@@ -77,7 +77,7 @@ returns @result table
     parent_column       nvarchar(1000),   -- fully qualified parent column when this is an FK, else NULL
     is_primary_key      bit,              -- 1 when the column participates in the PK, else 0
     primary_key_constraint  nvarchar(500),   -- name of the PK constraint, NULL if not in the PK
-    foreign_key_constraint  nvarchar(500),   -- name of the FK constraint, NULL if not an FK
+    foreign_key_constraint  nvarchar(500)   -- name of the FK constraint, NULL if not an FK
 )
 begin
     with parsed as
@@ -91,7 +91,7 @@ begin
         from $(SchemaName).parse_column_name(@name)
     )
     insert @result
-    select top(1)
+    select
         [db]                = isnull(p.[db], db_name()),
         schema_name         = p.[schema],
         table_name          = p.[table],
@@ -133,7 +133,7 @@ begin
                               end,
         is_primary_key          = case when pk.column_id is not null then 1 else 0 end,
         primary_key_constraint  = pk.pk_name,
-        foreign_key_constraint  = fk.name,
+        foreign_key_constraint  = fk.name
     from             parsed                       as p
           inner join sys.columns                  as c    on  c.object_id = p.object_id
                                                               and c.name = p.[column]

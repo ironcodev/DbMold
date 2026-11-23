@@ -1748,10 +1748,18 @@ go
 --     column participates in a foreign key as the child side; NULL
 --     otherwise. For a column in a composite FK, it names the single
 --     referenced column this column maps to.
---   - is_primary is 1 when the column is part of the primary key.
+--   - is_primary_key is 1 when the column is part of the primary key.
 --   - parent_column is NULL for the parent (referenced) side of an FK;
 --     to find "who references me", query sys.foreign_key_columns with
 --     referenced_object_id / referenced_column_id instead.
+--   - primary_key_constraint is the name of the primary key constraint
+--     when the column participates in the PK, NULL otherwise.
+--   - foreign_key_constraint is the name of the foreign key constraint
+--     when the column is the child side of an FK, NULL otherwise.
+--     For a composite FK, every column in the constraint gets the same
+--     constraint name.
+--   - parent_column and foreign_key_constraint are both NULL for the
+--     referenced (parent) side of an FK; the join reports the child side.
 -- =============================================
 create or alter function m.column_info
 (
@@ -1788,7 +1796,9 @@ returns @result table
     computed_definition nvarchar(max),
     column_description  nvarchar(max),
     parent_column       nvarchar(1000),   -- fully qualified parent column when this is an FK, else NULL
-    is_primary          bit               -- 1 when the column participates in the PK, else 0
+    is_primary_key      bit,              -- 1 when the column participates in the PK, else 0
+    primary_key_constraint  nvarchar(500),   -- name of the PK constraint, NULL if not in the PK
+    foreign_key_constraint  nvarchar(500)   -- name of the FK constraint, NULL if not an FK
 )
 begin
     with parsed as
@@ -1842,7 +1852,9 @@ begin
                                      + N'.' + quotename(object_name(fkc.referenced_object_id))
                                      + N'.' + quotename(rc.name)
                               end,
-        is_primary          = case when pk.column_id is not null then 1 else 0 end
+        is_primary_key          = case when pk.column_id is not null then 1 else 0 end,
+        primary_key_constraint  = pk.pk_name,
+        foreign_key_constraint  = fk.name
     from             parsed                       as p
           inner join sys.columns                  as c    on  c.object_id = p.object_id
                                                               and c.name = p.[column]
@@ -1860,7 +1872,7 @@ begin
           left  join sys.foreign_keys             as fk   on  fk.object_id = fkc.constraint_object_id
           left  join sys.columns                  as rc   on  rc.object_id = fkc.referenced_object_id
                                                               and rc.column_id = fkc.referenced_column_id
-          left  join (select ic.object_id, ic.column_id
+          left  join (select ic.object_id, ic.column_id, i.name as pk_name
                        from sys.index_columns ic
                        join sys.indexes       i on i.object_id = ic.object_id and i.index_id = ic.index_id
                        where i.is_primary_key = 1) as pk
@@ -1892,7 +1904,7 @@ go
 -- Boolean checks (return bit)
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION m.is_nullable (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_nullable(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1900,7 +1912,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_identity (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_identity(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1908,7 +1920,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_sparse (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_sparse(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1916,7 +1928,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_computed (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_computed(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1924,7 +1936,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_filestream (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_filestream(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1932,7 +1944,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_xml (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_xml(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1940,7 +1952,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.is_rowguidcol (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.is_rowguidcol(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -1953,7 +1965,7 @@ GO
 -- String / scalar properties
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION m.column_typename (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_typename(@name nvarchar(1000))
 RETURNS sysname
 AS
 BEGIN
@@ -1961,7 +1973,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.column_collation (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_collation(@name nvarchar(1000))
 RETURNS sysname
 AS
 BEGIN
@@ -1969,7 +1981,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.column_desc (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_desc(@name nvarchar(1000))
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -1977,7 +1989,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.column_scale (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_scale(@name nvarchar(1000))
 RETURNS tinyint
 AS
 BEGIN
@@ -1985,7 +1997,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.column_precision (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_precision(@name nvarchar(1000))
 RETURNS tinyint
 AS
 BEGIN
@@ -1993,7 +2005,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION m.column_formula (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_formula(@name nvarchar(1000))
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -2001,20 +2013,78 @@ BEGIN
 END;
 GO
 
+CREATE OR ALTER FUNCTION m.is_primary_key(@name nvarchar(1000))
+RETURNS bit
+AS
+BEGIN
+    RETURN (SELECT is_primary_key FROM m.column_info(@name));
+END;
+GO
+
+CREATE OR ALTER FUNCTION m.is_foreign_key(@name nvarchar(1000))
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN (SELECT parent_column FROM m.column_info(@name)) IS NULL THEN 0 ELSE 1 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION m.column_parent(@name nvarchar(1000))
+RETURNS nvarchar(1000)
+AS
+BEGIN
+    RETURN (SELECT parent_column FROM m.column_info(@name));
+END;
+GO
+
+-- =============================================
+-- m.column_fk_name
+-- =============================================
+-- Returns the name of the foreign key constraint on a column, or NULL
+-- when the column is not the child side of any FK.
+--
+-- If the column participates in more than one FK, the alphabetically
+-- first constraint name is returned, so the function is deterministic.
+-- Use column_info when you need every constraint name.
+-- =============================================
+create or alter function m.column_fk_name(@name nvarchar(1000))
+returns nvarchar(500)
+as
+begin
+    return (
+        select foreign_key_constraint
+        from m.column_info(@name)
+    );
+end;
+go
+
+-- =============================================
+-- m.column_pk_name
+-- =============================================
+-- Returns the name of the primary key constraint on a column, or NULL
+-- when the column is not part of the primary key.
+-- =============================================
+create or alter function m.column_pk_name(@name nvarchar(1000))
+returns nvarchar(500)
+as
+begin
+    return (
+        select primary_key_constraint
+        from m.column_info(@name)
+    );
+end;
+go
 
 -- ---------------------------------------------
 -- column_size: mirrors COL_LENGTH (bytes).
 -- Returns NULL if the column does not exist.
--- ---------------------------------------------
-
-CREATE OR ALTER FUNCTION m.column_size (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION m.column_size(@name nvarchar(1000))
 RETURNS int
 AS
 BEGIN
     RETURN (SELECT max_length FROM m.column_info(@name));
 END;
 GO
-
 
 -- ---------------------------------------------
 -- column_length: logical length for string columns.
@@ -2025,31 +2095,32 @@ GO
 -- Returns NULL if the column does not exist.
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION m.column_length (@name nvarchar(1000))
-RETURNS int
-AS
-BEGIN
-    DECLARE @type sysname, @max_len smallint;
+create or alter function m.column_length(@name nvarchar(1000))
+returns int
+as
+begin
+    declare @system_type_id int, @max_len int;
 
-    SELECT @type = type_name, @max_len = max_length
-    FROM m.column_info(@name);
+    select @system_type_id = system_type_id, @max_len = max_length
+    from m.column_info(@name);
 
-    IF @type IS NULL
-        RETURN NULL;
+    if @system_type_id is null
+        return null;
 
-    RETURN CASE
-        WHEN @type IN (N'varchar', N'char', N'varbinary', N'binary')
-            THEN @max_len
-        WHEN @type IN (N'nvarchar', N'nchar')
-            THEN @max_len / 2
-        WHEN @type IN (N'text', N'ntext', N'image')
-            THEN -1
-        ELSE 0
-    END;
-END;
-GO
-
+    return case
+        when @system_type_id in (167, 175, 165, 173)      -- varchar, char, varbinary, binary
+            then @max_len
+        when @system_type_id in (231, 239)                -- nvarchar, nchar
+            then case when @max_len = -1 then -1 else @max_len / 2 end
+        when @system_type_id in (35, 99, 241)             -- text, ntext, xml
+            then -1
+        when @system_type_id = 34                          -- image
+            then -1
+        else 0
+    end;
+end;
 go
+
 
 -- ---------------------------------------------
 -- functions/column_type.sql

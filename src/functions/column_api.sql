@@ -163,11 +163,12 @@ create or alter function $(SchemaName).column_fk_name(@name nvarchar(1000))
 returns nvarchar(500)
 as
 begin
-    return (
-        select foreign_key_constraint
-        from $(SchemaName).column_info(@name)
-    );
+    declare @count int;
+    select @count = count(*) from $(SchemaName).column_info(@name) where foreign_key_constraint is not null;
+    if @count <> 1 return null;
+    return (select foreign_key_constraint from $(SchemaName).column_info(@name) where foreign_key_constraint is not null);
 end;
+go
 
 -- =============================================
 -- $(SchemaName).column_pk_name
@@ -184,12 +185,11 @@ begin
         from $(SchemaName).column_info(@name)
     );
 end;
+go
 
 -- ---------------------------------------------
 -- column_size: mirrors COL_LENGTH (bytes).
 -- Returns NULL if the column does not exist.
--- ---------------------------------------------
-
 CREATE OR ALTER FUNCTION $(SchemaName).column_size(@name nvarchar(1000))
 RETURNS int
 AS
@@ -197,7 +197,6 @@ BEGIN
     RETURN (SELECT max_length FROM $(SchemaName).column_info(@name));
 END;
 GO
-
 
 -- ---------------------------------------------
 -- column_length: logical length for string columns.

@@ -41,6 +41,32 @@ BEGIN
         @level0type = N'SCHEMA', @level0name = N'dbo',
         @level1type = N'TABLE',  @level1name = N'__sstr_gci_tbl',
         @level2type = N'COLUMN', @level2name = N'Id';
+
+
+    IF OBJECT_ID('dbo.__sstr_gci_parent_a', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_parent_a;
+    IF OBJECT_ID('dbo.__sstr_gci_parent_b', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_parent_b;
+
+    CREATE TABLE dbo.__sstr_gci_parent_a
+    (
+        Id int NOT NULL CONSTRAINT PK_gci_parent_a PRIMARY KEY
+    );
+
+    CREATE TABLE dbo.__sstr_gci_parent_b
+    (
+        Id int NOT NULL CONSTRAINT PK_gci_parent_b PRIMARY KEY
+    );
+
+    IF OBJECT_ID('dbo.__sstr_gci_multi_fk', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_multi_fk;
+
+    CREATE TABLE dbo.__sstr_gci_multi_fk
+    (
+        RefId int NULL
+            CONSTRAINT FK_gci_multi_fk_a FOREIGN KEY REFERENCES dbo.__sstr_gci_parent_a(Id),
+        CONSTRAINT FK_gci_multi_fk_b FOREIGN KEY (RefId) REFERENCES dbo.__sstr_gci_parent_b(Id)
+    );
 END
 GO
 
@@ -51,6 +77,13 @@ BEGIN
         DROP TABLE dbo.__sstr_gci_child;
     IF OBJECT_ID('dbo.__sstr_gci_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_gci_tbl;
+    
+    IF OBJECT_ID('dbo.__sstr_gci_multi_fk', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_multi_fk;
+    IF OBJECT_ID('dbo.__sstr_gci_parent_a', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_parent_a;
+    IF OBJECT_ID('dbo.__sstr_gci_parent_b', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_parent_b;
 END
 GO
 
@@ -404,6 +437,47 @@ BEGIN
 
     EXEC Assert.IsNull @pk_name;
     EXEC Assert.IsNull @fk_name;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 21. A column in two FK constraints produces two rows in column_info.
+CREATE OR ALTER PROCEDURE sstr.column_info_multi_fk_column_returns_two_rows
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @count int, @distinct_parents int, @distinct_fks int;
+
+    SELECT
+        @count             = COUNT(*),
+        @distinct_parents  = COUNT(DISTINCT parent_column),
+        @distinct_fks      = COUNT(DISTINCT foreign_key_constraint)
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId');
+
+    -- two FKs on the same column -> two rows
+    EXEC Assert.Equals @count,            2;
+    -- each row names a different parent column
+    EXEC Assert.Equals @distinct_parents, 2;
+    -- each row names a different FK constraint
+    EXEC Assert.Equals @distinct_fks,     2;
+
+    -- both parent columns are present, in either order
+    DECLARE @has_a bit = CASE WHEN EXISTS (
+        SELECT 1 FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId')
+        WHERE parent_column = N'[dbo].[__sstr_gci_parent_a].[Id]'
+          AND foreign_key_constraint = N'FK_gci_multi_fk_a'
+    ) THEN 1 ELSE 0 END;
+
+    DECLARE @has_b bit = CASE WHEN EXISTS (
+        SELECT 1 FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId')
+        WHERE parent_column = N'[dbo].[__sstr_gci_parent_b].[Id]'
+          AND foreign_key_constraint = N'FK_gci_multi_fk_b'
+    ) THEN 1 ELSE 0 END;
+
+    EXEC Assert.Equals @has_a, 1;
+    EXEC Assert.Equals @has_b, 1;
 
     EXEC dbo.column_info_teardown;
 END

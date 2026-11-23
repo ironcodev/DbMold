@@ -3,7 +3,7 @@
     "column_api": { "skip": true, "postScript": "./tests/functions/column_api.postscript.sql" },
     "column_default": { "skip": true, "postScript": "./tests/functions/column_default.postscript.sql" },
     "column_exists": { "skip": true, "postScript": "./tests/functions/column_exists.postscript.sql" },
-    "column_info": { "skip": true, "postScript": "./tests/functions/column_info.postscript.sql" },
+    "column_info": { "skip": false, "postScript": "./tests/functions/column_info.postscript.sql" },
     "default_exists": { "skip": true, "postScript": "./tests/functions/default_exists.postscript.sql" },
     "foreign_key_exists": { "skip": true, "postScript": "./tests/functions/foreign_key_exists.postscript.sql" },
     "primary_key_exists": { "skip": true, "postScript": "./tests/functions/primary_key_exists.postscript.sql" },
