@@ -16,7 +16,7 @@
 -- Boolean checks (return bit)
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_nullable (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_nullable(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -24,7 +24,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_identity (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_identity(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -32,7 +32,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_sparse (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_sparse(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -40,7 +40,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_computed (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_computed(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -48,7 +48,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_filestream (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_filestream(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -56,7 +56,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_xml (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_xml(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -64,7 +64,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol(@name nvarchar(1000))
 RETURNS bit
 AS
 BEGIN
@@ -77,7 +77,7 @@ GO
 -- String / scalar properties
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_typename (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_typename(@name nvarchar(1000))
 RETURNS sysname
 AS
 BEGIN
@@ -85,7 +85,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_collation (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@name nvarchar(1000))
 RETURNS sysname
 AS
 BEGIN
@@ -93,7 +93,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_desc (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_desc(@name nvarchar(1000))
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -101,7 +101,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_scale (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_scale(@name nvarchar(1000))
 RETURNS tinyint
 AS
 BEGIN
@@ -109,7 +109,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_precision (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_precision(@name nvarchar(1000))
 RETURNS tinyint
 AS
 BEGIN
@@ -117,7 +117,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_formula (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_formula(@name nvarchar(1000))
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -125,13 +125,72 @@ BEGIN
 END;
 GO
 
+CREATE OR ALTER FUNCTION $(SchemaName).is_primary_key(@name nvarchar(1000))
+RETURNS bit
+AS
+BEGIN
+    RETURN (SELECT is_primary_key FROM $(SchemaName).column_info(@name));
+END;
+GO
+
+CREATE OR ALTER FUNCTION $(SchemaName).is_foreign_key(@name nvarchar(1000))
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN (SELECT parent_column FROM $(SchemaName).column_info(@name)) IS NULL THEN 0 ELSE 1 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION $(SchemaName).column_parent(@name nvarchar(1000))
+RETURNS nvarchar(1000)
+AS
+BEGIN
+    RETURN (SELECT parent_column FROM $(SchemaName).column_info(@name));
+END;
+GO
+
+-- =============================================
+-- $(SchemaName).column_fk_name
+-- =============================================
+-- Returns the name of the foreign key constraint on a column, or NULL
+-- when the column is not the child side of any FK.
+--
+-- If the column participates in more than one FK, the alphabetically
+-- first constraint name is returned, so the function is deterministic.
+-- Use column_info when you need every constraint name.
+-- =============================================
+create or alter function $(SchemaName).column_fk_name(@name nvarchar(1000))
+returns nvarchar(500)
+as
+begin
+    return (
+        select foreign_key_constraint
+        from $(SchemaName).column_info(@name)
+    );
+end;
+
+-- =============================================
+-- $(SchemaName).column_pk_name
+-- =============================================
+-- Returns the name of the primary key constraint on a column, or NULL
+-- when the column is not part of the primary key.
+-- =============================================
+create or alter function $(SchemaName).column_pk_name(@name nvarchar(1000))
+returns nvarchar(500)
+as
+begin
+    return (
+        select primary_key_constraint
+        from $(SchemaName).column_info(@name)
+    );
+end;
 
 -- ---------------------------------------------
 -- column_size: mirrors COL_LENGTH (bytes).
 -- Returns NULL if the column does not exist.
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_size (@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_size(@name nvarchar(1000))
 RETURNS int
 AS
 BEGIN
@@ -149,26 +208,28 @@ GO
 -- Returns NULL if the column does not exist.
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_length (@name nvarchar(1000))
-RETURNS int
-AS
-BEGIN
-    DECLARE @type sysname, @max_len smallint;
+create or alter function $(SchemaName).column_length(@name nvarchar(1000))
+returns int
+as
+begin
+    declare @system_type_id int, @max_len int;
 
-    SELECT @type = type_name, @max_len = max_length
-    FROM $(SchemaName).column_info(@name);
+    select @system_type_id = system_type_id, @max_len = max_length
+    from $(SchemaName).column_info(@name);
 
-    IF @type IS NULL
-        RETURN NULL;
+    if @system_type_id is null
+        return null;
 
-    RETURN CASE
-        WHEN @type IN (N'varchar', N'char', N'varbinary', N'binary')
-            THEN @max_len
-        WHEN @type IN (N'nvarchar', N'nchar')
-            THEN @max_len / 2
-        WHEN @type IN (N'text', N'ntext', N'image')
-            THEN -1
-        ELSE 0
-    END;
-END;
-GO
+    return case
+        when @system_type_id in (167, 175, 165, 173)      -- varchar, char, varbinary, binary
+            then @max_len
+        when @system_type_id in (231, 239)                -- nvarchar, nchar
+            then case when @max_len = -1 then -1 else @max_len / 2 end
+        when @system_type_id in (35, 99, 241)             -- text, ntext, xml
+            then -1
+        when @system_type_id = 34                          -- image
+            then -1
+        else 0
+    end;
+end;
+go

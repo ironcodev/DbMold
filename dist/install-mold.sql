@@ -1744,6 +1744,14 @@ go
 --     form.
 --   - default_value is normalized via _normalize_default; default_name
 --     is the raw constraint name.
+--   - parent_column is the fully qualified referenced column when this
+--     column participates in a foreign key as the child side; NULL
+--     otherwise. For a column in a composite FK, it names the single
+--     referenced column this column maps to.
+--   - is_primary is 1 when the column is part of the primary key.
+--   - parent_column is NULL for the parent (referenced) side of an FK;
+--     to find "who references me", query sys.foreign_key_columns with
+--     referenced_object_id / referenced_column_id instead.
 -- =============================================
 create or alter function mold.column_info
 (
@@ -1778,7 +1786,9 @@ returns @result table
     default_value       nvarchar(max),
     default_name        nvarchar(500),
     computed_definition nvarchar(max),
-    column_description  nvarchar(max)
+    column_description  nvarchar(max),
+    parent_column       nvarchar(1000),   -- fully qualified parent column when this is an FK, else NULL
+    is_primary          bit               -- 1 when the column participates in the PK, else 0
 )
 begin
     with parsed as
@@ -1825,23 +1835,41 @@ begin
         default_value       = mold._normalize_default(dc.definition),
         default_name        = dc.name,
         computed_definition = cc.definition,
-        column_description  = cast(ep.value as nvarchar(max))
-    from             parsed                   as p
-          inner join sys.columns              as c    on  c.object_id = p.object_id
-                                                          and c.name = p.[column]
-          inner join sys.types                as t    on  t.user_type_id = c.user_type_id
-          left  join sys.default_constraints  as dc   on  dc.parent_object_id = c.object_id
-                                                          and dc.parent_column_id = c.column_id
-          left  join sys.computed_columns     as cc   on  cc.object_id = c.object_id
-                                                          and cc.column_id = c.column_id
-          left  join sys.extended_properties  as ep   on  ep.major_id = c.object_id
-                                                          and ep.minor_id = c.column_id
-                                                          and ep.name = N'MS_Description'
-                                                          and ep.class = 1
+        column_description  = cast(ep.value as nvarchar(max)),
+        parent_column       = case
+                                  when fk.object_id is null then null
+                                  else quotename(object_schema_name(fkc.referenced_object_id))
+                                     + N'.' + quotename(object_name(fkc.referenced_object_id))
+                                     + N'.' + quotename(rc.name)
+                              end,
+        is_primary          = case when pk.column_id is not null then 1 else 0 end
+    from             parsed                       as p
+          inner join sys.columns                  as c    on  c.object_id = p.object_id
+                                                              and c.name = p.[column]
+          inner join sys.types                    as t    on  t.user_type_id = c.user_type_id
+          left  join sys.default_constraints      as dc   on  dc.parent_object_id = c.object_id
+                                                              and dc.parent_column_id = c.column_id
+          left  join sys.computed_columns         as cc   on  cc.object_id = c.object_id
+                                                              and cc.column_id = c.column_id
+          left  join sys.extended_properties      as ep   on  ep.major_id = c.object_id
+                                                              and ep.minor_id = c.column_id
+                                                              and ep.name = N'MS_Description'
+                                                              and ep.class = 1
+          left  join sys.foreign_key_columns      as fkc  on  fkc.parent_object_id = c.object_id
+                                                              and fkc.parent_column_id = c.column_id
+          left  join sys.foreign_keys             as fk   on  fk.object_id = fkc.constraint_object_id
+          left  join sys.columns                  as rc   on  rc.object_id = fkc.referenced_object_id
+                                                              and rc.column_id = fkc.referenced_column_id
+          left  join (select ic.object_id, ic.column_id
+                       from sys.index_columns ic
+                       join sys.indexes       i on i.object_id = ic.object_id and i.index_id = ic.index_id
+                       where i.is_primary_key = 1) as pk
+                                                 on  pk.object_id = c.object_id
+                                                              and pk.column_id = c.column_id
   return;
 end
-
 go
+
 
 -- ---------------------------------------------
 -- functions/column_api.sql

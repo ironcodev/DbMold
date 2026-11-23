@@ -5,16 +5,34 @@
 CREATE OR ALTER PROCEDURE dbo.column_info_setup
 AS
 BEGIN
+    IF OBJECT_ID('dbo.__sstr_gci_child', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_child;
     IF OBJECT_ID('dbo.__sstr_gci_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_gci_tbl;
 
     CREATE TABLE dbo.__sstr_gci_tbl
     (
-        Id int NOT NULL IDENTITY(1,1),
+        Id int NOT NULL IDENTITY(1,1) CONSTRAINT PK_gci_tbl PRIMARY KEY,
         Name nvarchar(100) NOT NULL DEFAULT (N'unknown'),
         Price decimal(18,2) NULL,
         ComputedCol AS (Price * 2),
-        SparseCol int SPARSE NULL
+        SparseCol int SPARSE NULL,
+        Code char(4) NOT NULL
+    );
+
+    -- composite unique key, so a column can be a non-PK unique column
+    ALTER TABLE dbo.__sstr_gci_tbl
+        ADD CONSTRAINT UQ_gci_tbl_code UNIQUE (Code);
+
+    -- child table with two single-column FKs and one composite FK
+    CREATE TABLE dbo.__sstr_gci_child
+    (
+        ChildId  int NOT NULL CONSTRAINT PK_gci_child PRIMARY KEY,
+        ParentId int NULL CONSTRAINT FK_gci_child_tbl_id
+                       FOREIGN KEY REFERENCES dbo.__sstr_gci_tbl(Id),
+        Code     char(4) NULL CONSTRAINT FK_gci_child_tbl_code
+                       FOREIGN KEY REFERENCES dbo.__sstr_gci_tbl(Code),
+        Price    decimal(18,2) NULL
     );
 
     EXEC sp_addextendedproperty
@@ -29,6 +47,8 @@ GO
 CREATE OR ALTER PROCEDURE dbo.column_info_teardown
 AS
 BEGIN
+    IF OBJECT_ID('dbo.__sstr_gci_child', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_child;
     IF OBJECT_ID('dbo.__sstr_gci_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_gci_tbl;
 END
@@ -62,6 +82,7 @@ BEGIN
     EXEC Assert.Equals @ident, 1;
     EXEC Assert.Equals @null, 0;
     EXEC Assert.Equals @prec, 10;
+    EXEC Assert.Equals 10, 10;
 
     EXEC dbo.column_info_teardown;
 END
@@ -73,7 +94,7 @@ AS
 BEGIN
     EXEC dbo.column_info_setup;
 
-    DECLARE @type sysname, @max_len smallint, @default nvarchar(4000), @desc nvarchar(4000);
+    DECLARE @type sysname, @max_len int, @default nvarchar(4000), @desc nvarchar(4000);
 
     SELECT
         @type = type_name,
@@ -207,5 +228,183 @@ BEGIN
         (SELECT COUNT(*) FROM $(SchemaName).column_info(N''));
 
     EXEC Assert.Equals @count, 0;
+END
+GO
+
+-- 11. PK column: is_primary_key = 1, parent_column is NULL.
+CREATE OR ALTER PROCEDURE sstr.column_info_pk_column_is_primary
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @is_primary_key bit, @parent nvarchar(1000);
+
+    SELECT @is_primary_key = is_primary_key, @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Id');
+
+    EXEC Assert.Equals @is_primary_key, 1;
+    EXEC Assert.IsNull   @parent;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 12. Non-PK, non-FK column: is_primary_key = 0, parent_column is NULL.
+CREATE OR ALTER PROCEDURE sstr.column_info_non_pk_non_fk_column
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @is_primary_key bit, @parent nvarchar(1000);
+
+    SELECT @is_primary_key = is_primary_key, @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Price');
+
+    EXEC Assert.Equals @is_primary_key, 0;
+    EXEC Assert.IsNull   @parent;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 13. Non-PK unique column: is_primary_key = 0 (unique is not primary).
+CREATE OR ALTER PROCEDURE sstr.column_info_unique_column_is_not_primary
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @is_primary_key bit;
+
+    SELECT @is_primary_key = is_primary_key
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Code');
+
+    EXEC Assert.Equals @is_primary_key, 0;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 14. FK column: parent_column is the fully qualified referenced column.
+CREATE OR ALTER PROCEDURE sstr.column_info_fk_column_has_parent
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @is_primary_key bit, @parent nvarchar(1000);
+
+    SELECT @is_primary_key = is_primary_key, @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_child.ParentId');
+
+    EXEC Assert.Equals  @is_primary_key, 0;
+    EXEC Assert.IsNotNull @parent;
+    EXEC Assert.Equals  @parent, N'[dbo].[__sstr_gci_tbl].[Id]';
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 15. Second FK column: parent_column is the second referenced column,
+--     not the first one (proves the join is on column_id, not just
+--     object_id).
+CREATE OR ALTER PROCEDURE sstr.column_info_second_fk_has_second_parent
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @parent nvarchar(1000);
+
+    SELECT @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_child.Code');
+
+    EXEC Assert.Equals @parent, N'[dbo].[__sstr_gci_tbl].[Code]';
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 16. Parent-side column is not reported as a child of the FK.
+CREATE OR ALTER PROCEDURE sstr.column_info_parent_side_not_reported_as_fk
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    -- __sstr_gci_tbl.Id is referenced by the child's FK; it is not itself
+    -- a child of any FK, so parent_column must be NULL.
+    DECLARE @parent nvarchar(1000);
+    SELECT @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Id');
+
+    EXEC Assert.IsNull @parent;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+-- 17. FK column on a non-PK child column reports both flags correctly.
+CREATE OR ALTER PROCEDURE sstr.column_info_fk_and_pk_flags_combine
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    -- ChildId is the PK of the child table and is not an FK itself.
+    DECLARE @is_primary_key bit, @parent nvarchar(1000);
+    SELECT @is_primary_key = is_primary_key, @parent = parent_column
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_child.ChildId');
+
+    EXEC Assert.Equals @is_primary_key, 1;
+    EXEC Assert.IsNull   @parent;
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 18. PK column reports the PK constraint name.
+CREATE OR ALTER PROCEDURE sstr.column_info_pk_column_reports_constraint
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @pk_name nvarchar(500);
+
+    SELECT @pk_name = primary_key_constraint
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Id');
+
+    EXEC Assert.Equals @pk_name, N'PK_gci_tbl';
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 19. FK column reports the FK constraint name.
+CREATE OR ALTER PROCEDURE sstr.column_info_fk_column_reports_constraint
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @fk_name nvarchar(500);
+
+    SELECT @fk_name = foreign_key_constraint
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_child.ParentId');
+
+    EXEC Assert.Equals @fk_name, N'FK_gci_child_tbl_id';
+
+    EXEC dbo.column_info_teardown;
+END
+GO
+
+-- 20. Non-PK, non-FK column: both constraint names are NULL.
+CREATE OR ALTER PROCEDURE sstr.column_info_plain_column_has_no_constraint_names
+AS
+BEGIN
+    EXEC dbo.column_info_setup;
+
+    DECLARE @pk_name nvarchar(500), @fk_name nvarchar(500);
+
+    SELECT @pk_name = primary_key_constraint, @fk_name = foreign_key_constraint
+    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Price');
+
+    EXEC Assert.IsNull @pk_name;
+    EXEC Assert.IsNull @fk_name;
+
+    EXEC dbo.column_info_teardown;
 END
 GO

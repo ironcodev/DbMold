@@ -7,6 +7,10 @@ AS
 BEGIN
     IF OBJECT_ID('dbo.__sstr_cp_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_cp_tbl;
+    IF OBJECT_ID('dbo.__sstr_gci_detail', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_detail;
+    IF OBJECT_ID('dbo.__sstr_gci_master', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_master;
 
     CREATE TABLE dbo.__sstr_cp_tbl
     (
@@ -28,6 +32,19 @@ BEGIN
         @level0type = N'SCHEMA', @level0name = N'dbo',
         @level1type = N'TABLE',  @level1name = N'__sstr_cp_tbl',
         @level2type = N'COLUMN', @level2name = N'Id';
+
+    CREATE TABLE dbo.__sstr_gci_master
+    (
+        Id int NOT NULL IDENTITY(1,1) PRIMARY KEY,
+        Name nvarchar(100) NOT NULL DEFAULT (N'unknown')
+    );
+
+    CREATE TABLE dbo.__sstr_gci_detail
+    (
+        ChildId  int NOT NULL CONSTRAINT PK_gci_detail PRIMARY KEY,
+        ParentId int NULL CONSTRAINT FK_gci_detail_ChildId
+                        FOREIGN KEY REFERENCES dbo.__sstr_gci_master(Id)
+    );
 END
 GO
 
@@ -36,6 +53,10 @@ AS
 BEGIN
     IF OBJECT_ID('dbo.__sstr_cp_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_cp_tbl;
+    IF OBJECT_ID('dbo.__sstr_gci_detail', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_detail;
+    IF OBJECT_ID('dbo.__sstr_gci_master', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_master;
 END
 GO
 
@@ -43,7 +64,7 @@ GO
 -- is_nullable
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_nullable_should_return_0_for_not_null
+CREATE OR ALTER PROCEDURE sstr.column_api_is_nullable_should_return_0_for_not_null
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -53,7 +74,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_nullable_should_return_1_for_nullable
+CREATE OR ALTER PROCEDURE sstr.column_api_is_nullable_should_return_1_for_nullable
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -67,7 +88,7 @@ GO
 -- is_identity
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_identity_should_return_1_for_identity
+CREATE OR ALTER PROCEDURE sstr.column_api_is_identity_should_return_1_for_identity
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -77,7 +98,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_identity_should_return_0_for_non_identity
+CREATE OR ALTER PROCEDURE sstr.column_api_is_identity_should_return_0_for_non_identity
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -91,7 +112,7 @@ GO
 -- is_sparse
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_sparse_should_return_1_for_sparse
+CREATE OR ALTER PROCEDURE sstr.column_api_is_sparse_should_return_1_for_sparse
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -101,7 +122,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_sparse_should_return_0_for_non_sparse
+CREATE OR ALTER PROCEDURE sstr.column_api_is_sparse_should_return_0_for_non_sparse
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -115,7 +136,7 @@ GO
 -- is_computed
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_computed_should_return_1_for_computed
+CREATE OR ALTER PROCEDURE sstr.column_api_is_computed_should_return_1_for_computed
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -125,7 +146,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_computed_should_return_0_for_non_computed
+CREATE OR ALTER PROCEDURE sstr.column_api_is_computed_should_return_0_for_non_computed
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -139,7 +160,7 @@ GO
 -- is_filestream
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_filestream_should_return_1_for_filestream
+CREATE OR ALTER PROCEDURE sstr.column_api_is_filestream_should_return_1_for_filestream
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -149,7 +170,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_filestream_should_return_0_for_non_filestream
+CREATE OR ALTER PROCEDURE sstr.column_api_is_filestream_should_return_0_for_non_filestream
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -163,7 +184,7 @@ GO
 -- is_xml
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_xml_should_return_1_for_xml
+CREATE OR ALTER PROCEDURE sstr.column_api_is_xml_should_return_1_for_xml
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -173,7 +194,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_xml_should_return_0_for_non_xml
+CREATE OR ALTER PROCEDURE sstr.column_api_is_xml_should_return_0_for_non_xml
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -187,7 +208,7 @@ GO
 -- is_rowguidcol
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.is_rowguidcol_should_return_1_for_rowguidcol
+CREATE OR ALTER PROCEDURE sstr.column_api_is_rowguidcol_should_return_1_for_rowguidcol
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -197,7 +218,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.is_rowguidcol_should_return_0_for_non_rowguidcol
+CREATE OR ALTER PROCEDURE sstr.column_api_is_rowguidcol_should_return_0_for_non_rowguidcol
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -211,7 +232,7 @@ GO
 -- column_typename
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_typename_should_return_int
+CREATE OR ALTER PROCEDURE sstr.column_api_column_typename_should_return_int
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -221,7 +242,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_typename_should_return_nvarchar
+CREATE OR ALTER PROCEDURE sstr.column_api_column_typename_should_return_nvarchar
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -231,7 +252,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_typename_should_return_null_for_missing
+CREATE OR ALTER PROCEDURE sstr.column_api_column_typename_should_return_null_for_missing
 AS
 BEGIN
     DECLARE @r sysname = $(SchemaName).column_typename(N'dbo.__sstr_no_such_table.Col');
@@ -243,7 +264,7 @@ GO
 -- column_collation
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_collation_should_return_collation_for_string
+CREATE OR ALTER PROCEDURE sstr.column_api_column_collation_should_return_collation_for_string
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -253,7 +274,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_collation_should_return_null_for_int
+CREATE OR ALTER PROCEDURE sstr.column_api_column_collation_should_return_null_for_int
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -267,7 +288,7 @@ GO
 -- column_desc
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_desc_should_return_description
+CREATE OR ALTER PROCEDURE sstr.column_api_column_desc_should_return_description
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -277,7 +298,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_desc_should_return_null_for_no_description
+CREATE OR ALTER PROCEDURE sstr.column_api_column_desc_should_return_null_for_no_description
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -291,7 +312,7 @@ GO
 -- column_scale / column_precision
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_scale_should_return_scale_for_decimal
+CREATE OR ALTER PROCEDURE sstr.column_api_column_scale_should_return_scale_for_decimal
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -301,7 +322,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_precision_should_return_precision_for_decimal
+CREATE OR ALTER PROCEDURE sstr.column_api_column_precision_should_return_precision_for_decimal
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -315,7 +336,7 @@ GO
 -- column_formula
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_formula_should_return_computed_definition
+CREATE OR ALTER PROCEDURE sstr.column_api_column_formula_should_return_computed_definition
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -325,7 +346,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_formula_should_return_null_for_non_computed
+CREATE OR ALTER PROCEDURE sstr.column_api_column_formula_should_return_null_for_non_computed
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -339,7 +360,7 @@ GO
 -- column_size
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_size_should_return_200_for_nvarchar_100
+CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_200_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -349,7 +370,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_size_should_return_50_for_varchar_50
+CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_50_for_varchar_50
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -363,7 +384,7 @@ GO
 -- column_length
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_length_should_return_100_for_nvarchar_100
+CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_100_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -373,7 +394,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_length_should_return_50_for_varchar_50
+CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_50_for_varchar_50
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -383,7 +404,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_length_should_return_0_for_int
+CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_0_for_int
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -397,7 +418,7 @@ GO
 -- column_type (TVF)
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_type_should_return_int_info
+CREATE OR ALTER PROCEDURE sstr.column_api_column_type_should_return_int_info
 AS
 BEGIN
     EXEC dbo.column_api_setup;
@@ -418,7 +439,7 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_type_should_return_empty_for_missing
+CREATE OR ALTER PROCEDURE sstr.column_api_column_type_should_return_empty_for_missing
 AS
 BEGIN
     DECLARE @count int =
