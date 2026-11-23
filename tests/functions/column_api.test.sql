@@ -7,11 +7,7 @@ AS
 BEGIN
     IF OBJECT_ID('dbo.__sstr_cp_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_cp_tbl;
-    IF OBJECT_ID('dbo.__sstr_gci_detail', 'U') IS NOT NULL
-        DROP TABLE dbo.__sstr_gci_detail;
-    IF OBJECT_ID('dbo.__sstr_gci_master', 'U') IS NOT NULL
-        DROP TABLE dbo.__sstr_gci_master;
-
+    
     CREATE TABLE dbo.__sstr_cp_tbl
     (
         Id int NOT NULL IDENTITY(1,1),
@@ -33,17 +29,49 @@ BEGIN
         @level1type = N'TABLE',  @level1name = N'__sstr_cp_tbl',
         @level2type = N'COLUMN', @level2name = N'Id';
 
-    CREATE TABLE dbo.__sstr_gci_master
+    -- single fk constraint scneario
+    IF OBJECT_ID('dbo.__sstr_cp_detail', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_detail;
+    IF OBJECT_ID('dbo.__sstr_cp_master', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_master;
+
+    CREATE TABLE dbo.__sstr_cp_master
     (
         Id int NOT NULL IDENTITY(1,1) PRIMARY KEY,
         Name nvarchar(100) NOT NULL DEFAULT (N'unknown')
     );
 
-    CREATE TABLE dbo.__sstr_gci_detail
+    CREATE TABLE dbo.__sstr_cp_detail
     (
         ChildId  int NOT NULL CONSTRAINT PK_gci_detail PRIMARY KEY,
         ParentId int NULL CONSTRAINT FK_gci_detail_ChildId
-                        FOREIGN KEY REFERENCES dbo.__sstr_gci_master(Id)
+                        FOREIGN KEY REFERENCES dbo.__sstr_cp_master(Id)
+    );
+
+    -- multi fk scenario
+    IF OBJECT_ID('dbo.__sstr_cp_parent_a', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_parent_a;
+    IF OBJECT_ID('dbo.__sstr_cp_parent_b', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_parent_b;
+
+    CREATE TABLE dbo.__sstr_cp_parent_a
+    (
+        Id int NOT NULL CONSTRAINT PK_gci_parent_a PRIMARY KEY
+    );
+
+    CREATE TABLE dbo.__sstr_cp_parent_b
+    (
+        Id int NOT NULL CONSTRAINT PK_gci_parent_b PRIMARY KEY
+    );
+
+    IF OBJECT_ID('dbo.__sstr_cp_multi_fk', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_multi_fk;
+
+    CREATE TABLE dbo.__sstr_cp_multi_fk
+    (
+        RefId int NULL
+            CONSTRAINT FK_gci_multi_fk_a FOREIGN KEY REFERENCES dbo.__sstr_cp_parent_a(Id),
+        CONSTRAINT FK_gci_multi_fk_b FOREIGN KEY (RefId) REFERENCES dbo.__sstr_cp_parent_b(Id)
     );
 END
 GO
@@ -53,10 +81,18 @@ AS
 BEGIN
     IF OBJECT_ID('dbo.__sstr_cp_tbl', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_cp_tbl;
-    IF OBJECT_ID('dbo.__sstr_gci_detail', 'U') IS NOT NULL
-        DROP TABLE dbo.__sstr_gci_detail;
-    IF OBJECT_ID('dbo.__sstr_gci_master', 'U') IS NOT NULL
-        DROP TABLE dbo.__sstr_gci_master;
+    
+    IF OBJECT_ID('dbo.__sstr_cp_detail', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_detail;
+    IF OBJECT_ID('dbo.__sstr_cp_master', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_master;
+
+    IF OBJECT_ID('dbo.__sstr_cp_multi_fk', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_multi_fk;
+    IF OBJECT_ID('dbo.__sstr_cp_parent_a', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_parent_a;
+    IF OBJECT_ID('dbo.__sstr_cp_parent_b', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_cp_parent_b;
 END
 GO
 
@@ -357,39 +393,15 @@ END
 GO
 
 -- =============================================
--- column_size
--- =============================================
-
-CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_200_for_nvarchar_100
-AS
-BEGIN
-    EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Name');
-    EXEC Assert.Equals @r, 200;
-    EXEC dbo.column_api_teardown;
-END
-GO
-
-CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_50_for_varchar_50
-AS
-BEGIN
-    EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Code');
-    EXEC Assert.Equals @r, 50;
-    EXEC dbo.column_api_teardown;
-END
-GO
-
--- =============================================
 -- column_length
 -- =============================================
 
-CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_100_for_nvarchar_100
+CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_200_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
     DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Name');
-    EXEC Assert.Equals @r, 100;
+    EXEC Assert.Equals @r, 200;
     EXEC dbo.column_api_teardown;
 END
 GO
@@ -404,11 +416,35 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_0_for_int
+-- =============================================
+-- column_size
+-- =============================================
+
+CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_100_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Id');
+    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Name');
+    EXEC Assert.Equals @r, 100;
+    EXEC dbo.column_api_teardown;
+END
+GO
+
+CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_50_for_varchar_50
+AS
+BEGIN
+    EXEC dbo.column_api_setup;
+    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Code');
+    EXEC Assert.Equals @r, 50;
+    EXEC dbo.column_api_teardown;
+END
+GO
+
+CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_0_for_int
+AS
+BEGIN
+    EXEC dbo.column_api_setup;
+    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Id');
     EXEC Assert.Equals @r, 0;
     EXEC dbo.column_api_teardown;
 END
@@ -445,5 +481,62 @@ BEGIN
     DECLARE @count int =
         (SELECT COUNT(*) FROM $(SchemaName).column_type(N'dbo.__sstr_no_such_table.Col'));
     EXEC Assert.Equals @count, 0;
+END
+GO
+
+CREATE OR ALTER PROCEDURE sstr.column_api_multi_fk_column_returns_one_row_in_non_column_fk_name_apis
+AS
+BEGIN
+    EXEC dbo.column_api_setup;
+
+    DECLARE @raised_error BIT = 1
+    DECLARE @bool_value BIT
+    DECLARE @int_value INT
+    DECLARE @str_value NVARCHAR(2000)
+    DECLARE @has_comma BIT
+    DECLARE @label VARCHAR(100)
+
+    BEGIN TRY
+        SET @bool_value = $(SchemaName).is_nullable(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_identity(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_sparse(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_computed(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_filestream(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_xml(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_rowguidcol(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @str_value = $(SchemaName).column_typename(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @str_value = $(SchemaName).column_collation(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @str_value = $(SchemaName).column_desc(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @int_value = $(SchemaName).column_scale(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @int_value = $(SchemaName).column_precision(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @str_value = $(SchemaName).column_formula(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_primary_key(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @bool_value = $(SchemaName).is_foreign_key(N'dbo.__sstr_cp_multi_fk.RefId');
+
+        SET @str_value = $(SchemaName).column_parent(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @has_comma = CASE WHEN CHARINDEX(',', @str_value) = 0 THEN 0 ELSE 1 END
+        SET @label = 'column_parent: ' + @str_value
+
+        EXEC Assert.IsTrue @has_comma
+
+        SET @str_value = $(SchemaName).column_fk_name(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @has_comma = CASE WHEN CHARINDEX(',', @str_value) = 0 THEN 0 ELSE 1 END
+        SET @label = 'column_fk_name: ' + @str_value
+
+        EXEC Assert.IsTrue @has_comma
+        
+        SET @str_value = $(SchemaName).column_pk_name(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @int_value = $(SchemaName).column_length(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @int_value = $(SchemaName).column_size(N'dbo.__sstr_cp_multi_fk.RefId');
+
+        SET @raised_error = 0
+    END TRY
+    BEGIN CATCH
+        SET @raised_error = 1
+    END CATCH
+
+    EXEC Assert.IsFalse @raised_error, @label;
+
+    EXEC dbo.column_api_teardown;
 END
 GO
