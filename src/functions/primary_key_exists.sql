@@ -6,10 +6,10 @@
         complete column list matches the supplied columns in the same order.
 
     Input:
-        @name - A table-and-column specification accepted by _parse_column_list.
+        @name - A table-and-column specification accepted by parse_column_list.
                 Examples:
                     N'dbo.Users.Id'
-                    N'dbo.UserRoles(UserId,RoleId'
+                    N'dbo.UserRoles(UserId,RoleId)'
 
     Returns:
         bit
@@ -20,7 +20,7 @@
                 invalid, or the specification refers to another database.
 
     Notes:
-        - Uses _parse_column_list to parse the input.
+        - Uses parse_column_list to parse the input.
         - Checks metadata in the current database only. A scalar UDF cannot
           use dynamic SQL to inspect an arbitrary database.
         - Composite-key column order is significant.
@@ -34,50 +34,61 @@ CREATE OR ALTER FUNCTION $(SchemaName).primary_key_exists
 RETURNS bit
 AS
 BEGIN
+    IF $(SchemaName).is_empty(@name) = 1
+        RETURN 0;
+
     DECLARE
-        @db sysname,
-        @schema_name sysname,
-        @table_name sysname,
-        @object_id int,
-        @column_count int;
+        @db             sysname,
+        @schema         sysname,
+        @table          sysname,
+        @object_id      int,
+        @column_count   int;
 
     DECLARE @columns TABLE
     (
-        column_name sysname,
-        ord int
+        [object_id] int,
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        [ord]       int
     );
 
-    INSERT INTO @columns (column_name, ord)
-    SELECT column_name, ord
-    FROM $(SchemaName)._parse_column_list(@name);
+    INSERT INTO @columns
+    (
+        [object_id],
+        [db],
+        [schema],
+        [table],
+        [column],
+        [ord]
+    )
+    SELECT
+        [object_id],
+        [db],
+        [schema],
+        [table],
+        [column],
+        [ord]
+    FROM $(SchemaName).parse_column_list(@name);
 
     SELECT TOP (1)
-        @db = db,
-        @schema_name = schema_name,
-        @table_name = table_name
-    FROM $(SchemaName)._parse_column_list(@name);
-
-    SELECT @column_count = COUNT(*)
+        @object_id  = [object_id],
+        @db         = [db],
+        @schema     = [schema],
+        @table      = [table]
     FROM @columns;
+
+    SELECT @column_count = COUNT(*) FROM @columns;
 
     -- A valid specification must identify a database, schema, table,
     -- and at least one column.
-    IF @column_count = 0
-       OR @db IS NULL
-       OR @schema_name IS NULL
-       OR @table_name IS NULL
+    IF @column_count = 0 OR @db IS NULL OR @schema IS NULL OR @table IS NULL
         RETURN 0;
 
     -- Scalar UDFs cannot use dynamic SQL to inspect another database.
     IF @db <> DB_NAME()
         RETURN 0;
-
-    SELECT @object_id = t.object_id
-    FROM sys.tables t
-    INNER JOIN sys.schemas s
-        ON s.schema_id = t.schema_id
-    WHERE s.name = @schema_name
-      AND t.name = @table_name;
 
     IF @object_id IS NULL
         RETURN 0;
@@ -118,8 +129,8 @@ BEGIN
                      AND c.column_id = ic.column_id
                   WHERE ic.object_id = kc.parent_object_id
                     AND ic.index_id = kc.unique_index_id
-                    AND ic.key_ordinal = requested.ord
-                    AND c.name = requested.column_name
+                    AND ic.key_ordinal = requested.[ord]
+                    AND c.name = requested.[column]
               )
           )
     )

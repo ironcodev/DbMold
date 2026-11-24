@@ -1032,15 +1032,37 @@ GO
 go
 
 -- ---------------------------------------------
+-- functions/_object_id.sql
+-- ---------------------------------------------
+create or alter function m._object_id
+(
+	@db				nvarchar(500),
+	@schema			nvarchar(500),
+	@object_name	nvarchar(500)
+)
+returns int
+as
+begin
+	return object_id(
+                quotename(isnull(@db, db_name()))
+              + N'.' + quotename(isnull(@schema, N'dbo'))
+              + N'.' + quotename(@object_name)
+		)
+end
+go
+
+
+-- ---------------------------------------------
 -- functions/parse_table_name.sql
 -- ---------------------------------------------
 create or alter function m.parse_table_name(@name nvarchar(1000))
 returns @result table 
 (
-	[db] nvarchar(500),
-	[schema] nvarchar(500),
-	[table] nvarchar(500),
-	[column] nvarchar(500)
+	[object_id]	int,
+	[db] 		nvarchar(500),
+	[schema] 	nvarchar(500),
+	[table] 	nvarchar(500),
+	[column] 	nvarchar(500)
 )
 as
 begin
@@ -1091,8 +1113,22 @@ begin
 		set @column = @part4
 	end
 
-	insert into @result([db], [schema], [table], [column])
-	values (@db, @schema, @table, @column)
+	insert into @result
+	(
+		[object_id],
+		[db],
+		[schema],
+		[table],
+		[column]
+	)
+	values
+	(
+		m._object_id(@db, @schema, @table),
+		@db,
+		@schema,
+		@table,
+		@column
+	)
 
 	return
 end
@@ -1105,10 +1141,11 @@ go
 create or alter function m.parse_column_name(@name nvarchar(1000))
 returns @result table 
 (
-	[db] nvarchar(500),
-	[schema] nvarchar(500),
-	[table] nvarchar(500),
-	[column] nvarchar(500)
+	[object_id]	int,
+	[db] 		nvarchar(500),
+	[schema] 	nvarchar(500),
+	[table] 	nvarchar(500),
+	[column] 	nvarchar(500)
 )
 as
 begin
@@ -1159,8 +1196,22 @@ begin
 		set @column = @part4
 	end
 
-	insert into @result([db], [schema], [table], [column])
-	values (@db, @schema, @table, @column)
+	insert into @result
+	(
+		[object_id],
+		[db],
+		[schema],
+		[table],
+		[column]
+	)
+	values
+	(
+		m._object_id(@db, @schema, @table),
+		@db,
+		@schema,
+		@table,
+		@column
+	)
 
 	return
 end
@@ -1296,6 +1347,7 @@ WITH
     tbl AS
     (
         SELECT
+            pt.[object_id],
             pt.[db],
             pt.[schema],
             pt.[table],
@@ -1305,6 +1357,7 @@ WITH
     )
 -- Branch 1: multi-column form.
 SELECT
+    [object_id] = t.object_id,
     [db]        = ISNULL(t.[db], DB_NAME()),
     schema_name = t.[schema],
     table_name  = t.[table],
@@ -1323,6 +1376,7 @@ UNION ALL
 
 -- Branch 2: single-column form.
 SELECT
+    [object_id] = pc.[object_id],
     [db]        = ISNULL(pc.[db], DB_NAME()),
     schema_name = pc.[schema],
     table_name  = pc.[table],
@@ -1804,12 +1858,14 @@ begin
     with parsed as
     (
         select
-            [db], [schema], [table], [column],
-            object_id = object_id(
-                quotename(isnull([db], db_name()))
-              + N'.' + quotename(isnull([schema], N'dbo'))
-              + N'.' + quotename([table]))
+            [object_id], [db], [schema], [table], [column]
         from m.parse_column_name(@name)
+        where [column] is not null
+        union
+        select
+            [object_id], [db], [schema], [table], [column]
+        from m.parse_table_name(@name)
+        where [column] is null
     )
     insert @result
     select
@@ -1857,7 +1913,7 @@ begin
         foreign_key_constraint  = fk.name
     from             parsed                       as p
           inner join sys.columns                  as c    on  c.object_id = p.object_id
-                                                              and c.name = p.[column]
+                                                              and (c.name = p.[column] or p.[column] is null)
           inner join sys.types                    as t    on  t.user_type_id = c.user_type_id
           left  join sys.default_constraints      as dc   on  dc.parent_object_id = c.object_id
                                                               and dc.parent_column_id = c.column_id
@@ -3124,6 +3180,51 @@ RETURN
             ELSE NULL
         END
     FROM verdict AS v
+);
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/table_info.sql
+-- ---------------------------------------------
+-- =============================================
+-- m.table_info
+-- =============================================
+-- Returns detailed information for every column in a table.
+--
+-- Input formats:
+--   'Table'                 -> dbo.Table
+--   'Schema.Table'          -> Schema.Table
+--   'Db.Schema.Table'       -> Db.Schema.Table
+--   '[sales].[My.Table]'    -> sales.[My.Table]
+--
+-- Returns:
+--   - The same columns and metadata as m.column_info.
+--   - One row per column when the column has no child-side foreign key
+--     mappings, and one row per foreign-key mapping when it participates
+--     in multiple child-side foreign keys.
+--   - Rows are ordered by column_id when the caller specifies ORDER BY.
+--
+-- Notes:
+--   - Metadata is delegated to column_info; this helper does not duplicate
+--     column metadata logic.
+--   - The table name is parsed by parse_table_name. An omitted schema is
+--     treated as dbo, and an omitted database is treated as the current DB.
+--   - As with column_info, catalog metadata is read from the current
+--     database's system catalog views.
+-- =============================================
+
+CREATE OR ALTER FUNCTION m.table_info
+(
+    @name nvarchar(1000)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT ci.*
+    FROM m.column_info(@name) AS ci
 );
 GO
 

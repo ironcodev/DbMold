@@ -5,27 +5,46 @@
 -- Portable replacement for the SQL Server 2022 LEADING form of TRIM.
 --
 -- Examples:
---   trim_left(N'000124',   N'0')  -> N'124'
---   trim_left(N'   hello', N' ')  -> N'hello'
---   trim_left(N'xxabc',    N'x')  -> N'abc'
---   trim_left(NULL,        N'0')  -> NULL
+--   trim_left(N'000124',   N'0', 1)  -> N'124'
+--   trim_left(N'   hello', N' ', 1)  -> N'hello'
+--   trim_left(N'xxabc',    N'x', 1)  -> N'abc'
+--   trim_left(N'XXabc',    N'x', 0)  -> N'XXabc'
+--   trim_left(NULL,        N'0', 1)  -> NULL
 -- =============================================
-create or alter function $(SchemaName).trim_left
+CREATE OR ALTER FUNCTION $(SchemaName).trim_left
 (
-    @s     nvarchar(max),
-    @chars nvarchar(100)
+    @s                nvarchar(max),
+    @chars            nvarchar(100),
+    @case_insensitive bit
 )
-returns nvarchar(max)
-as
-begin
-    if @s is null or @chars is null or @chars = N''
-        return @s;
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @s IS NULL OR @chars IS NULL OR DATALENGTH(@chars) = 0
+        RETURN @s;
 
-    declare @i int = 1;
-    declare @n int = len(@s);
+    DECLARE @i int = 1;
+    DECLARE @n int = DATALENGTH(@s) / 2;
 
-    while @i <= @n and charindex(substring(@s, @i, 1), @chars) > 0
-        set @i += 1;
+    WHILE @i <= @n
+    BEGIN
+        IF ISNULL(@case_insensitive, 0) = 1
+        BEGIN
+            IF CHARINDEX(SUBSTRING(@s, @i, 1), @chars) = 0
+                BREAK;
+        END
+        ELSE
+        BEGIN
+            IF CHARINDEX(
+                SUBSTRING(@s, @i, 1) COLLATE Latin1_General_100_BIN2,
+                @chars COLLATE Latin1_General_100_BIN2
+            ) = 0
+                BREAK;
+        END;
 
-    return substring(@s, @i, @n - @i + 1);
-end
+        SET @i += 1;
+    END;
+
+    RETURN SUBSTRING(@s, @i, @n - @i + 1);
+END;
+GO

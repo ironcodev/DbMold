@@ -5,26 +5,45 @@
 -- Portable replacement for the SQL Server 2022 TRAILING form of TRIM.
 --
 -- Examples:
---   trim_right(N'124.23000', N'0')  -> N'124.23'
---   trim_right(N'hello   ',  N' ')  -> N'hello'
---   trim_right(N'abcxx',     N'x')  -> N'abc'
---   trim_right(NULL,         N'0')  -> NULL
+--   trim_right(N'124.23000', N'0', 0)  -> N'124.23'
+--   trim_right(N'hello   ',  N' ', 0)  -> N'hello'
+--   trim_right(N'abcxx',     N'x', 1)  -> N'abc'
+--   trim_right(N'abcXX',     N'x', 0)  -> N'abcXX'
+--   trim_right(NULL,         N'0', 0)  -> NULL
 -- =============================================
-create or alter function $(SchemaName).trim_right
+CREATE OR ALTER FUNCTION $(SchemaName).trim_right
 (
-    @s     nvarchar(max),
-    @chars nvarchar(100)
+    @s                nvarchar(max),
+    @chars            nvarchar(100),
+    @case_insensitive bit
 )
-returns nvarchar(max)
-as
-begin
-    if @s is null or @chars is null or @chars = N''
-        return @s;
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @s IS NULL OR @chars IS NULL OR DATALENGTH(@chars) = 0
+        RETURN @s;
 
-    declare @i int = len(@s);
+    DECLARE @i int = DATALENGTH(@s) / 2;
 
-    while @i > 0 and charindex(substring(@s, @i, 1), @chars) > 0
-        set @i -= 1;
+    WHILE @i > 0
+    BEGIN
+        IF ISNULL(@case_insensitive, 0) = 1
+        BEGIN
+            IF CHARINDEX(SUBSTRING(@s, @i, 1), @chars) = 0
+                BREAK;
+        END
+        ELSE
+        BEGIN
+            IF CHARINDEX(
+                SUBSTRING(@s, @i, 1) COLLATE Latin1_General_100_BIN2,
+                @chars COLLATE Latin1_General_100_BIN2
+            ) = 0
+                BREAK;
+        END;
 
-    return left(@s, @i);
-end
+        SET @i -= 1;
+    END;
+
+    RETURN LEFT(@s, @i);
+END;
+GO

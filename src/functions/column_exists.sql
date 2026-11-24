@@ -21,9 +21,14 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN 0;
 
-    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
+    DECLARE @object_id  int,
+            @db         sysname,
+            @schema     sysname,
+            @table      sysname,
+            @column     sysname;
 
     SELECT
+        @object_id = p.[object_id],
         @db     = ISNULL(p.[db], DB_NAME()),
         @schema = p.[schema],
         @table  = p.[table],

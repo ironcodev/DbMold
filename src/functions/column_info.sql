@@ -42,53 +42,55 @@ go
 -- =============================================
 create or alter function $(SchemaName).column_info
 (
-    @name nvarchar(1000)
+    @name $(SchemaName).object_name
 )
 returns @result table
 (
-    [db]                nvarchar(1000),
-    schema_name         nvarchar(500),
-    table_name          nvarchar(500),
-    column_name         nvarchar(500),
-    column_id           int,
-    type_name           nvarchar(500),
-    type_schema_id      int,
-    type_schema_name    nvarchar(500),
-    user_type_id        int,
-    system_type_id      int,
-    max_length          int,
-    [length]            int,
-    [precision]         int,
-    scale               int,
-    collation_name      nvarchar(500),
-    is_nullable         bit,
-    is_identity         bit,
-    is_computed         bit,
-    is_persisted        bit,
-    is_sparse           bit,
-    is_filestream       bit,
-    is_xml              bit,
-    is_xml_document     bit,
-    is_rowguidcol       bit,
-    default_value       nvarchar(max),
-    default_name        nvarchar(500),
-    computed_definition nvarchar(max),
-    column_description  nvarchar(max),
-    parent_column       nvarchar(1000),   -- fully qualified parent column when this is an FK, else NULL
-    is_primary_key      bit,              -- 1 when the column participates in the PK, else 0
-    primary_key_constraint  nvarchar(500),   -- name of the PK constraint, NULL if not in the PK
-    foreign_key_constraint  nvarchar(500)   -- name of the FK constraint, NULL if not an FK
+    [db]                    sysname,
+    schema_name             sysname,
+    table_name              sysname,
+    column_name             sysname,
+    column_id               int,
+    type_name               sysname,
+    type_schema_id          int,
+    type_schema_name        sysname,
+    user_type_id            int,
+    system_type_id          int,
+    max_length              int,
+    [length]                int,
+    [precision]             int,
+    scale                   int,
+    collation_name          sysname,
+    is_nullable             bit,
+    is_identity             bit,
+    is_computed             bit,
+    is_persisted            bit,
+    is_sparse               bit,
+    is_filestream           bit,
+    is_xml                  bit,
+    is_xml_document         bit,
+    is_rowguidcol           bit,
+    default_value           nvarchar(max),
+    default_name            sysname,
+    computed_definition     nvarchar(max),
+    column_description      nvarchar(max),
+    parent_column           nvarchar(777),   -- fully qualified parent column when this is an FK, else NULL
+    is_primary_key          bit,              -- 1 when the column participates in the PK, else 0
+    primary_key_constraint  sysname,   -- name of the PK constraint, NULL if not in the PK
+    foreign_key_constraint  sysname   -- name of the FK constraint, NULL if not an FK
 )
 begin
     with parsed as
     (
         select
-            [db], [schema], [table], [column],
-            object_id = object_id(
-                quotename(isnull([db], db_name()))
-              + N'.' + quotename(isnull([schema], N'dbo'))
-              + N'.' + quotename([table]))
+            [object_id], [db], [schema], [table], [column]
         from $(SchemaName).parse_column_name(@name)
+        where [column] is not null
+        union
+        select
+            [object_id], [db], [schema], [table], [column]
+        from $(SchemaName).parse_table_name(@name)
+        where [column] is null
     )
     insert @result
     select
@@ -102,13 +104,8 @@ begin
         type_schema_name    = schema_name(t.schema_id),
         user_type_id        = c.user_type_id,
         system_type_id      = c.system_type_id,
-        max_length          = c.max_length,
-        [length]            = case
-                                  when c.max_length = -1 then -1
-                                  when c.system_type_id in (231, 239) then c.max_length / 2
-                                  when c.system_type_id in (165, 167, 173, 175) then c.max_length
-                                  else 0
-                              end,
+        [max_length]        = c.max_length,
+        [length]            = $(SchemaName)._string_length(c.system_type_id, c.max_length),
         [precision]         = c.[precision],
         scale               = c.scale,
         collation_name      = c.collation_name,
@@ -136,7 +133,7 @@ begin
         foreign_key_constraint  = fk.name
     from             parsed                       as p
           inner join sys.columns                  as c    on  c.object_id = p.object_id
-                                                              and c.name = p.[column]
+                                                              and (c.name = p.[column] or p.[column] is null)
           inner join sys.types                    as t    on  t.user_type_id = c.user_type_id
           left  join sys.default_constraints      as dc   on  dc.parent_object_id = c.object_id
                                                               and dc.parent_column_id = c.column_id
@@ -157,6 +154,7 @@ begin
                        where i.is_primary_key = 1) as pk
                                                  on  pk.object_id = c.object_id
                                                               and pk.column_id = c.column_id
+    where p.object_id is not null
   return;
 end
 go

@@ -13,18 +13,21 @@
 --   is_whitespace(NCHAR(9))    -> 1
 --   is_whitespace(N'a' + NCHAR(10) + N'b') -> 0
 -- =============================================
-create or alter function $(SchemaName).is_whitespace
+CREATE OR ALTER FUNCTION $(SchemaName).is_whitespace
 (
     @value nvarchar(max)
 )
-returns bit
-as
-begin
-    if @value is null return 0;
+RETURNS bit
+AS
+BEGIN
+    IF @value IS NULL
+        RETURN 0;
 
-    return case
-        when patindex(N'%[^ ' + char(9) + char(10) + char(13) + N']%', @value) = 0 then 1
-        else 0
-    end;
-end
-go
+    RETURN CASE
+        WHEN DATALENGTH(
+            $(SchemaName).trim_whitespace(@value)
+        ) = 0 THEN 1
+        ELSE 0
+    END;
+END;
+GO

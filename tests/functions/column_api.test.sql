@@ -393,14 +393,14 @@ END
 GO
 
 -- =============================================
--- column_length
+-- column_max_length
 -- =============================================
 
 CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_200_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Name');
+    DECLARE @r int = $(SchemaName).column_max_length(N'dbo.__sstr_cp_tbl.Name');
     EXEC Assert.Equals @r, 200;
     EXEC dbo.column_api_teardown;
 END
@@ -410,21 +410,21 @@ CREATE OR ALTER PROCEDURE sstr.column_api_column_length_should_return_50_for_var
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Code');
+    DECLARE @r int = $(SchemaName).column_max_length(N'dbo.__sstr_cp_tbl.Code');
     EXEC Assert.Equals @r, 50;
     EXEC dbo.column_api_teardown;
 END
 GO
 
 -- =============================================
--- column_size
+-- column_length
 -- =============================================
 
 CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_100_for_nvarchar_100
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Name');
+    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Name');
     EXEC Assert.Equals @r, 100;
     EXEC dbo.column_api_teardown;
 END
@@ -434,7 +434,7 @@ CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_50_for_varch
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Code');
+    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Code');
     EXEC Assert.Equals @r, 50;
     EXEC dbo.column_api_teardown;
 END
@@ -444,7 +444,7 @@ CREATE OR ALTER PROCEDURE sstr.column_api_column_size_should_return_0_for_int
 AS
 BEGIN
     EXEC dbo.column_api_setup;
-    DECLARE @r int = $(SchemaName).column_size(N'dbo.__sstr_cp_tbl.Id');
+    DECLARE @r int = $(SchemaName).column_length(N'dbo.__sstr_cp_tbl.Id');
     EXEC Assert.Equals @r, 0;
     EXEC dbo.column_api_teardown;
 END
@@ -526,8 +526,8 @@ BEGIN
         EXEC Assert.IsTrue @has_comma
         
         SET @str_value = $(SchemaName).column_pk_name(N'dbo.__sstr_cp_multi_fk.RefId');
+        SET @int_value = $(SchemaName).column_max_length(N'dbo.__sstr_cp_multi_fk.RefId');
         SET @int_value = $(SchemaName).column_length(N'dbo.__sstr_cp_multi_fk.RefId');
-        SET @int_value = $(SchemaName).column_size(N'dbo.__sstr_cp_multi_fk.RefId');
 
         SET @raised_error = 0
     END TRY

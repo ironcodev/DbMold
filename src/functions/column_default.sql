@@ -26,34 +26,22 @@ BEGIN
     IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
         RETURN NULL;
 
-    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
+    DECLARE @object_id  int
 
     SELECT
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table],
-        @column = p.[column]
-    FROM $(SchemaName).parse_column_name(@name) p;
+        @object_id = [object_id]
+    FROM $(SchemaName).parse_column_name(@name);
 
-    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
-        RETURN NULL;
-
-    DECLARE @full_name nvarchar(1000) =
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
-
-    DECLARE @table_id int = OBJECT_ID(@full_name, N'U');
-    IF @table_id IS NULL
+    IF @object_id IS NULL
         RETURN NULL;
 
     DECLARE @definition nvarchar(max);
 
-    SELECT @definition = dc.definition
-    FROM sys.default_constraints dc
-    JOIN sys.columns c
-      ON c.object_id = dc.parent_object_id
-     AND c.column_id = dc.parent_column_id
-    WHERE dc.parent_object_id = @table_id
-      AND c.name = @column;
+    SELECT
+        @definition = dc.definition
+    FROM            sys.default_constraints dc
+        INNER JOIN  sys.columns             c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id
+    WHERE dc.parent_object_id = @object_id AND c.name = @column;
 
     RETURN @definition;
 END;

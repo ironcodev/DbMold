@@ -16,7 +16,7 @@
 -- Boolean checks (return bit)
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_nullable(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_nullable(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -24,7 +24,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_identity(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_identity(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -32,7 +32,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_sparse(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_sparse(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -40,7 +40,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_computed(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_computed(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -48,7 +48,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_filestream(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_filestream(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -56,7 +56,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_xml(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_xml(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -64,7 +64,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -77,7 +77,7 @@ GO
 -- String / scalar properties
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_typename(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_typename(@name $(SchemaName).object_name)
 RETURNS sysname
 AS
 BEGIN
@@ -85,7 +85,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@name $(SchemaName).object_name)
 RETURNS sysname
 AS
 BEGIN
@@ -93,7 +93,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_desc(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_desc(@name $(SchemaName).object_name)
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -101,7 +101,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_scale(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_scale(@name $(SchemaName).object_name)
 RETURNS tinyint
 AS
 BEGIN
@@ -109,7 +109,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_precision(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_precision(@name $(SchemaName).object_name)
 RETURNS tinyint
 AS
 BEGIN
@@ -117,7 +117,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_formula(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_formula(@name $(SchemaName).object_name)
 RETURNS nvarchar(max)
 AS
 BEGIN
@@ -125,7 +125,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_primary_key(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_primary_key(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -133,7 +133,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_foreign_key(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).is_foreign_key(@name $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
@@ -141,8 +141,8 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_parent(@name nvarchar(1000))
-RETURNS nvarchar(max)
+CREATE OR ALTER FUNCTION $(SchemaName).column_parent(@name $(SchemaName).object_name)
+RETURNS nvarchar(777)
 AS
 BEGIN
     RETURN (SELECT STRING_AGG(parent_column, ',') FROM $(SchemaName).column_info(@name));
@@ -159,8 +159,8 @@ GO
 -- first constraint name is returned, so the function is deterministic.
 -- Use column_info when you need every constraint name.
 -- =============================================
-create or alter function $(SchemaName).column_fk_name(@name nvarchar(1000))
-returns nvarchar(max)
+create or alter function $(SchemaName).column_fk_name(@name $(SchemaName).object_name)
+returns sysname
 as
 begin
     return
@@ -178,8 +178,8 @@ go
 -- Returns the name of the primary key constraint on a column, or NULL
 -- when the column is not part of the primary key.
 -- =============================================
-create or alter function $(SchemaName).column_pk_name(@name nvarchar(1000))
-returns nvarchar(500)
+create or alter function $(SchemaName).column_pk_name(@name $(SchemaName).object_name)
+returns sysname
 as
 begin
     return (
@@ -190,9 +190,9 @@ end;
 go
 
 -- ---------------------------------------------
--- column_size: mirrors COL_LENGTH (bytes).
+-- column_length: mirrors COL_LENGTH (bytes).
 -- Returns NULL if the column does not exist.
-CREATE OR ALTER FUNCTION $(SchemaName).column_length(@name nvarchar(1000))
+CREATE OR ALTER FUNCTION $(SchemaName).column_max_length(@name $(SchemaName).object_name)
 RETURNS int
 AS
 BEGIN
@@ -201,36 +201,20 @@ END;
 GO
 
 -- ---------------------------------------------
--- column_size: logical length for string columns.
+-- column_length: logical length for string columns.
 --   varchar  -> max_length
 --   nvarchar -> max_length / 2
 --   text, ntext -> -1
 --   other    -> 0
 -- Returns NULL if the column does not exist.
 -- ---------------------------------------------
-
-create or alter function $(SchemaName).column_size(@name nvarchar(1000))
-returns int
-as
-begin
-    declare @system_type_id int, @max_len int;
-
-    select top(1) @system_type_id = system_type_id, @max_len = max_length
-    from $(SchemaName).column_info(@name);
-
-    if @system_type_id is null
-        return null;
-
-    return case
-        when @system_type_id in (167, 175, 165, 173)      -- varchar, char, varbinary, binary
-            then @max_len
-        when @system_type_id in (231, 239)                -- nvarchar, nchar
-            then case when @max_len = -1 then -1 else @max_len / 2 end
-        when @system_type_id in (35, 99, 241)             -- text, ntext, xml
-            then -1
-        when @system_type_id = 34                          -- image
-            then -1
-        else 0
-    end;
-end;
-go
+CREATE OR ALTER FUNCTION $(SchemaName).column_length
+(
+    @name $(SchemaName).object_name
+)
+RETURNS int
+AS
+BEGIN
+    RETURN (SELECT TOP(1) [length] FROM $(SchemaName).column_info(@name));
+END;
+GO

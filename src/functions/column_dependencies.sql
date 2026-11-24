@@ -35,22 +35,14 @@ RETURN
     WITH
     parsed AS
     (
-        SELECT [db], [schema], [table], [column]
+        SELECT [object_id], [db], [schema], [table], [column]
         FROM $(SchemaName).parse_column_name(@column)
     ),
     resolved AS
     (
         SELECT
-            object_id  = OBJECT_ID(
-                            QUOTENAME(ISNULL(p.[db], DB_NAME()))
-                          + N'.' + QUOTENAME(ISNULL(p.[schema], N'dbo'))
-                          + N'.' + QUOTENAME(p.[table])),
-            column_id  = COLUMNPROPERTY(
-                            OBJECT_ID(
-                                QUOTENAME(ISNULL(p.[db], DB_NAME()))
-                              + N'.' + QUOTENAME(ISNULL(p.[schema], N'dbo'))
-                              + N'.' + QUOTENAME(p.[table])),
-                            p.[column], 'ColumnId'),
+            object_id  = p.[object_id],
+            column_id  = COLUMNPROPERTY(p.[object_id], p.[column], 'ColumnId'),
             schema_name = ISNULL(p.[schema], N'dbo'),
             table_name  = p.[table],
             column_name = p.[column]
@@ -65,11 +57,9 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(i.object_id))
                        + N'.' + QUOTENAME(i.name),
             type       = N'index'
-        FROM resolved AS r
-        JOIN sys.index_columns AS ic
-             ON ic.object_id = r.object_id AND ic.column_id = r.column_id
-        JOIN sys.indexes AS i
-             ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        FROM            resolved            AS r
+            INNER JOIN  sys.index_columns   AS ic   ON ic.object_id = r.object_id AND ic.column_id = r.column_id
+            INNER JOIN  sys.indexes         AS i    ON i.object_id = ic.object_id AND i.index_id = ic.index_id
         WHERE i.type <> 0                          -- skip heaps
           AND i.is_hypothetical = 0
     ),
@@ -80,11 +70,9 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(s.object_id))
                        + N'.' + QUOTENAME(s.name),
             type       = N'statistics'
-        FROM resolved AS r
-        JOIN sys.stats_columns AS sc
-             ON sc.object_id = r.object_id AND sc.column_id = r.column_id
-        JOIN sys.stats AS s
-             ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id
+        FROM            resolved            AS r
+            INNER JOIN  sys.stats_columns   AS sc   ON sc.object_id = r.object_id AND sc.column_id = r.column_id
+            INNER JOIN  sys.stats           AS s    ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id
         -- user-created stats only; auto-created stats are not a dependency
         -- the user can act on and should not block ALTER COLUMN
         WHERE s.auto_created = 0
@@ -97,12 +85,12 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(fk.object_id))
                        + N'.' + QUOTENAME(fk.name),
             type       = N'foreign key'
-        FROM resolved AS r
-        JOIN sys.foreign_key_columns AS fkc
-             ON (fkc.parent_object_id = r.object_id AND fkc.parent_column_id = r.column_id)
-             OR (fkc.referenced_object_id = r.object_id AND fkc.referenced_column_id = r.column_id)
-        JOIN sys.foreign_keys AS fk
-             ON fk.object_id = fkc.constraint_object_id
+        FROM            resolved                AS r
+            INNER JOIN  sys.foreign_key_columns AS fkc  ON
+                (fkc.parent_object_id = r.object_id AND fkc.parent_column_id = r.column_id)
+                OR
+                (fkc.referenced_object_id = r.object_id AND fkc.referenced_column_id = r.column_id)
+            INNER JOIN  sys.foreign_keys        AS fk   ON fk.object_id = fkc.constraint_object_id
     ),
     -- Computed columns in the same table that reference this column
     computed AS
@@ -112,13 +100,11 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(c.object_id))
                        + N'.' + QUOTENAME(c.name),
             type       = N'computed column'
-        FROM resolved AS r
-        JOIN sys.sql_expression_dependencies AS d
-             ON d.referenced_id = r.object_id
-            AND d.referenced_minor_id = r.column_id
-        JOIN sys.columns AS c
-             ON c.object_id = d.referencing_id
-            AND c.column_id = d.referencing_minor_id
+        FROM            resolved                        AS r
+            INNER JOIN  sys.sql_expression_dependencies AS d
+                ON d.referenced_id = r.object_id AND d.referenced_minor_id = r.column_id
+            INNER JOIN  sys.columns                     AS c
+                ON c.object_id = d.referencing_id AND c.column_id = d.referencing_minor_id
         WHERE c.is_computed = 1
     ),
     -- Views and other modules (procs, functions, triggers) that reference
@@ -138,12 +124,11 @@ RETURN
                              WHEN N'TR' THEN N'module'
                              ELSE N'module'
                          END
-        FROM resolved AS r
-        JOIN sys.sql_expression_dependencies AS d
-             ON d.referenced_id = r.object_id
-            AND d.referenced_minor_id = r.column_id
-        JOIN sys.objects AS o
-             ON o.object_id = d.referencing_id
+        FROM            resolved                        AS r
+            INNER JOIN  sys.sql_expression_dependencies AS d
+                ON d.referenced_id = r.object_id AND d.referenced_minor_id = r.column_id
+            INNER JOIN  sys.objects                     AS o
+                ON o.object_id = d.referencing_id
         WHERE o.type IN (N'V', N'P', N'FN', N'IF', N'TF', N'TR')
     ),
     all_deps AS
