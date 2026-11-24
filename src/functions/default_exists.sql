@@ -16,7 +16,7 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).default_exists
 (
-    @name           nvarchar(1000),
+    @name           $(SchemaName).object_name,
     @expected_value nvarchar(max) = NULL
 )
 RETURNS bit

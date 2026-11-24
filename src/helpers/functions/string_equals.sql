@@ -27,25 +27,9 @@ create or alter function $(SchemaName).string_equals
 returns bit
 as
 begin
-    set @a = isnull(@a, N'');
-    set @b = isnull(@b, N'');
-
-    if @trim = 1
-    begin
-        set @a = trim(@a);
-        set @b = trim(@b);
-    end
-
-    if @ignoreCase = 1
-        return case
-            when @a collate Latin1_General_CI_AS
-               = @b collate Latin1_General_CI_AS then 1
-            else 0
-        end;
-
     return case
-        when @a collate Latin1_General_CS_AS
-           = @b collate Latin1_General_CS_AS then 1
+        when $(SchemaName).string_compare(@a, @b, @trim, @ignoreCase) = 0
+            then 1
         else 0
     end;
 end

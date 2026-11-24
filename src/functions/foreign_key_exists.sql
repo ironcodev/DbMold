@@ -9,9 +9,8 @@ CREATE OR ALTER FUNCTION $(SchemaName).foreign_key_exists
 RETURNS bit
 AS
 BEGIN
-    IF $(SchemaName).is_empty(@fk_column) = 1
-        RETURN 0;
-    IF $(SchemaName).is_empty(@pk_column) = 1
+    IF      $(SchemaName).is_empty(@fk_column) = 1
+        OR  $(SchemaName).is_empty(@pk_column) = 1
         RETURN 0;
 
     DECLARE @fk TABLE

@@ -16,59 +16,59 @@
 -- Boolean checks (return bit)
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_nullable(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_nullable(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_nullable FROM $(SchemaName).column_info(@name));
+    RETURN (select is_nullable FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_identity(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_identity(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_identity FROM $(SchemaName).column_info(@name));
+    RETURN (select is_identity FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_sparse(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_sparse(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_sparse FROM $(SchemaName).column_info(@name));
+    RETURN (select is_sparse FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_computed(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_computed(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_computed FROM $(SchemaName).column_info(@name));
+    RETURN (select is_computed FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_filestream(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_filestream(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_filestream FROM $(SchemaName).column_info(@name));
+    RETURN (select is_filestream FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_xml(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_xml(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_xml FROM $(SchemaName).column_info(@name));
+    RETURN (select is_xml FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_rowguidcol(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_rowguidcol FROM $(SchemaName).column_info(@name));
+    RETURN (select is_rowguidcol FROM $(SchemaName).column_info(@column));
 END;
 GO
 
@@ -77,75 +77,75 @@ GO
 -- String / scalar properties
 -- ---------------------------------------------
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_typename(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_typename(@column $(SchemaName).object_name)
 RETURNS sysname
 AS
 BEGIN
-    RETURN (SELECT TOP(1) type_name FROM $(SchemaName).column_info(@name));
+    RETURN (select type_name FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@column $(SchemaName).object_name)
 RETURNS sysname
 AS
 BEGIN
-    RETURN (SELECT TOP(1) collation_name FROM $(SchemaName).column_info(@name));
+    RETURN (select collation_name FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_desc(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_desc(@column $(SchemaName).object_name)
 RETURNS nvarchar(max)
 AS
 BEGIN
-    RETURN (SELECT TOP(1) column_description FROM $(SchemaName).column_info(@name));
+    RETURN (select column_description FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_scale(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_scale(@column $(SchemaName).object_name)
 RETURNS tinyint
 AS
 BEGIN
-    RETURN (SELECT TOP(1) scale FROM $(SchemaName).column_info(@name));
+    RETURN (select scale FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_precision(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_precision(@column $(SchemaName).object_name)
 RETURNS tinyint
 AS
 BEGIN
-    RETURN (SELECT TOP(1) [precision] FROM $(SchemaName).column_info(@name));
+    RETURN (select [precision] FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_formula(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_formula(@column $(SchemaName).object_name)
 RETURNS nvarchar(max)
 AS
 BEGIN
-    RETURN (SELECT TOP(1) computed_definition FROM $(SchemaName).column_info(@name));
+    RETURN (select computed_definition FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_primary_key(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_primary_key(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN (SELECT TOP(1) is_primary_key FROM $(SchemaName).column_info(@name));
+    RETURN (select is_primary_key FROM $(SchemaName).column_info(@column));
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).is_foreign_key(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).is_foreign_key(@column $(SchemaName).object_name)
 RETURNS bit
 AS
 BEGIN
-    RETURN CASE WHEN EXISTS (SELECT 1 FROM $(SchemaName).column_info(@name) WHERE parent_column IS NOT NULL) THEN 1 ELSE 0 END;
+    RETURN CASE WHEN (SELECT parent_column FROM $(SchemaName).column_info(@column)) IS NULL THEN 0 ELSE 1 END;
 END;
 GO
 
-CREATE OR ALTER FUNCTION $(SchemaName).column_parent(@name $(SchemaName).object_name)
-RETURNS nvarchar(777)
+CREATE OR ALTER FUNCTION $(SchemaName).column_parent(@column $(SchemaName).object_name)
+RETURNS nvarchar(max)
 AS
 BEGIN
-    RETURN (SELECT STRING_AGG(parent_column, ',') FROM $(SchemaName).column_info(@name));
+    RETURN (SELECT parent_column FROM $(SchemaName).column_info(@column));
 END;
 GO
 
@@ -159,15 +159,14 @@ GO
 -- first constraint name is returned, so the function is deterministic.
 -- Use column_info when you need every constraint name.
 -- =============================================
-create or alter function $(SchemaName).column_fk_name(@name $(SchemaName).object_name)
-returns sysname
+create or alter function $(SchemaName).column_fk_name(@column $(SchemaName).object_name)
+returns nvarchar(max)
 as
 begin
     return
     (
-        select STRING_AGG(foreign_key_constraint, ',')
-        from $(SchemaName).column_info(@name)
-        where foreign_key_constraint is not null
+        select STRING_AGG(constraint_name, ',')
+        from $(SchemaName).column_foreign_keys(@column, 'out')
     );
 end;
 go
@@ -178,13 +177,13 @@ go
 -- Returns the name of the primary key constraint on a column, or NULL
 -- when the column is not part of the primary key.
 -- =============================================
-create or alter function $(SchemaName).column_pk_name(@name $(SchemaName).object_name)
+create or alter function $(SchemaName).column_pk_name(@column $(SchemaName).object_name)
 returns sysname
 as
 begin
     return (
-        select top(1) primary_key_constraint
-        from $(SchemaName).column_info(@name)
+        select primary_key_constraint
+        from $(SchemaName).column_info(@column)
     );
 end;
 go
@@ -192,11 +191,11 @@ go
 -- ---------------------------------------------
 -- column_length: mirrors COL_LENGTH (bytes).
 -- Returns NULL if the column does not exist.
-CREATE OR ALTER FUNCTION $(SchemaName).column_max_length(@name $(SchemaName).object_name)
+CREATE OR ALTER FUNCTION $(SchemaName).column_max_length(@column $(SchemaName).object_name)
 RETURNS int
 AS
 BEGIN
-    RETURN (SELECT TOP(1) max_length FROM $(SchemaName).column_info(@name));
+    RETURN (select max_length FROM $(SchemaName).column_info(@column));
 END;
 GO
 
@@ -210,11 +209,11 @@ GO
 -- ---------------------------------------------
 CREATE OR ALTER FUNCTION $(SchemaName).column_length
 (
-    @name $(SchemaName).object_name
+    @column $(SchemaName).object_name
 )
 RETURNS int
 AS
 BEGIN
-    RETURN (SELECT TOP(1) [length] FROM $(SchemaName).column_info(@name));
+    RETURN (select [length] FROM $(SchemaName).column_info(@column));
 END;
 GO

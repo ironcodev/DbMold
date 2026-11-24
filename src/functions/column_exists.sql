@@ -13,43 +13,34 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_exists
 (
-    @name nvarchar(1000)
+    @column $(SchemaName).object_name
 )
 RETURNS bit
 AS
 BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
+    DECLARE @object_id      int,
+            @column_id      int,
+            @db             sysname,
+            @table          sysname;
+
+    SELECT TOP(1)
+        @object_id      = p.[object_id],
+        @db             = p.[db],
+        @table          = p.[table],
+        @column_id      = p.[column_id]
+    FROM $(SchemaName).parse_column_name(@column) p;
+
+    -- Current database only
+    IF @db <> DB_NAME()
         RETURN 0;
 
-    DECLARE @object_id  int,
-            @db         sysname,
-            @schema     sysname,
-            @table      sysname,
-            @column     sysname;
-
-    SELECT
-        @object_id = p.[object_id],
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table],
-        @column = p.[column]
-    FROM $(SchemaName).parse_column_name(@name) p;
+    -- Object and column must exist
+    IF @object_id IS NULL OR @column_id IS NULL
+        RETURN 0;
 
     -- For temp tables, parse_column_name returns schema = NULL and
     -- table = '#...'. Reject them (UDFs cannot access temp tables).
-    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
-        RETURN 0;
-
-    IF LEFT(@table, 1) = N'#'
-        RETURN 0;
-
-    DECLARE @full_name nvarchar(1000) =
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
-
-    IF OBJECT_ID(@full_name, N'U') IS NULL
-        RETURN 0;
-
-    IF COL_LENGTH(@full_name, @column) IS NULL
+    IF LEFT(@table, 1) = N'#'   -- we can't support temp tables in a UDF, so reject them
         RETURN 0;
 
     RETURN 1;

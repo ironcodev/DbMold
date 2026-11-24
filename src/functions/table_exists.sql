@@ -16,7 +16,7 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).table_exists
 (
-    @name nvarchar(1000)
+    @name $(SchemaName).object_name
 )
 RETURNS bit
 AS

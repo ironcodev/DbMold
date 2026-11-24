@@ -13,6 +13,11 @@ IF 'mold' = 'mold' AND NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'config
     CREATE TABLE mold.config([key] VARCHAR(100) PRIMARY KEY, [value] NVARCHAR(1000));
 GO
 
+IF NOT EXISTS (SELECT 1 FROM sys.types WHERE name = 'object_name' AND schema_id = schema_id('mold'))
+    CREATE TYPE mold.object_name FROM nvarchar(1035); -- 4 * 258 (return type of QUOTENAME) + 3 (dots)
+
+GO
+
 go
 
 -- ---------------------------------------------
@@ -143,6 +148,36 @@ GO
 go
 
 -- ---------------------------------------------
+-- helpers/functions/base64_to_varbinary.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.base64_to_varbinary
+-- =============================================
+-- Decodes a base64 string to varbinary.
+--
+-- Examples:
+--   base64_to_varbinary(N'aGVsbG8=') -> 0x68656C6C6F
+--   base64_to_varbinary(N'')         -> 0x
+--   base64_to_varbinary(NULL)        -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION [mold].[base64_to_varbinary]
+(
+	 @s		VARCHAR(MAX)
+) 
+RETURNS VARBINARY(MAX)
+AS
+BEGIN
+	if @s is null return null;
+
+    -- SQL Server 2022+: return cast(N'' as xml).value('xs:base64Binary(sql:variable("@s"))', 'varbinary(max)');
+    return cast(N'' as xml).value('xs:base64Binary(sql:variable("@s"))', 'varbinary(max)');
+END
+
+GO
+
+go
+
+-- ---------------------------------------------
 -- helpers/functions/hex_to_varbinary.sql
 -- ---------------------------------------------
 -- =============================================
@@ -175,6 +210,21 @@ begin
         'xs:hexBinary(sql:variable("@s"))',
         'varbinary(max)'
     );
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/is_integer.sql
+-- ---------------------------------------------
+create or alter function mold.[is_integer]
+(
+	@x varchar(20)
+)
+returns bit
+as
+begin
+	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
 end
 go
 
@@ -230,49 +280,383 @@ go
 
 
 -- ---------------------------------------------
--- helpers/functions/is_decimal0.sql
+-- helpers/functions/is_decimal_zero.sql
 -- ---------------------------------------------
-create or alter function mold.is_decimal0
+create or alter function mold.is_decimal_zero
 (
-	@x varchar(50)
+    @x varchar(50)
 )
 returns bit
 as
 begin
-	return mold.is_decimal(@x) & (case when trim(replace(replace(@x, '.', ''), '0', '')) = '' then 1 else 0 end)
+    return
+        mold.is_decimal(@x)
+        & case
+            when trim(
+                replace(
+                    replace(
+                        replace(
+                            replace(trim(@x), '+', ''),
+                            '-', ''
+                        ),
+                        '.', ''
+                    ),
+                    '0', ''
+                )
+            ) = '' then 1
+            else 0
+          end;
 end
 go
 
 
 -- ---------------------------------------------
+-- helpers/functions/trim_invisible_characters.sql
+-- ---------------------------------------------
+
+CREATE OR ALTER FUNCTION mold.trim_invisible_characters
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @value IS NULL
+        RETURN NULL;
+
+    DECLARE @length int = DATALENGTH(@value) / 2;
+    DECLARE @codepoint int;
+
+    -- Trim from the beginning.
+    WHILE @length > 0
+    BEGIN
+        SET @codepoint = UNICODE(LEFT(@value, 1));
+
+        IF NOT
+        (
+            @codepoint IN (173, 847, 1564, 6158, 65279)
+            OR @codepoint BETWEEN 8203 AND 8207
+            OR @codepoint BETWEEN 8234 AND 8238
+            OR @codepoint BETWEEN 8288 AND 8303
+        )
+            BREAK;
+
+        SET @value = SUBSTRING(@value, 2, @length - 1);
+        SET @length = @length - 1;
+    END;
+
+    -- Trim from the end.
+    WHILE @length > 0
+    BEGIN
+        SET @codepoint = UNICODE(RIGHT(@value, 1));
+
+        IF NOT
+        (
+            @codepoint IN (173, 847, 1564, 6158, 65279)
+            OR @codepoint BETWEEN 8203 AND 8207
+            OR @codepoint BETWEEN 8234 AND 8238
+            OR @codepoint BETWEEN 8288 AND 8303
+        )
+            BREAK;
+
+        SET @value = SUBSTRING(@value, 1, @length - 1);
+        SET @length = @length - 1;
+    END;
+
+    RETURN @value;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_left.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.trim_left
+-- =============================================
+-- Removes every leading character in @chars from @s.
+-- Portable replacement for the SQL Server 2022 LEADING form of TRIM.
+--
+-- Examples:
+--   trim_left(N'000124',   N'0', 1)  -> N'124'
+--   trim_left(N'   hello', N' ', 1)  -> N'hello'
+--   trim_left(N'xxabc',    N'x', 1)  -> N'abc'
+--   trim_left(N'XXabc',    N'x', 0)  -> N'XXabc'
+--   trim_left(NULL,        N'0', 1)  -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION mold.trim_left
+(
+    @s                nvarchar(max),
+    @chars            nvarchar(100),
+    @case_insensitive bit
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @s IS NULL OR @chars IS NULL OR DATALENGTH(@chars) = 0
+        RETURN @s;
+
+    DECLARE @i int = 1;
+    DECLARE @n int = DATALENGTH(@s) / 2;
+
+    WHILE @i <= @n
+    BEGIN
+        IF ISNULL(@case_insensitive, 0) = 1
+        BEGIN
+            IF CHARINDEX(SUBSTRING(@s, @i, 1), @chars) = 0
+                BREAK;
+        END
+        ELSE
+        BEGIN
+            IF CHARINDEX(
+                SUBSTRING(@s, @i, 1) COLLATE Latin1_General_100_BIN2,
+                @chars COLLATE Latin1_General_100_BIN2
+            ) = 0
+                BREAK;
+        END;
+
+        SET @i += 1;
+    END;
+
+    RETURN SUBSTRING(@s, @i, @n - @i + 1);
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_right.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.trim_right
+-- =============================================
+-- Removes every trailing character in @chars from @s.
+-- Portable replacement for the SQL Server 2022 TRAILING form of TRIM.
+--
+-- Examples:
+--   trim_right(N'124.23000', N'0', 0)  -> N'124.23'
+--   trim_right(N'hello   ',  N' ', 0)  -> N'hello'
+--   trim_right(N'abcxx',     N'x', 1)  -> N'abc'
+--   trim_right(N'abcXX',     N'x', 0)  -> N'abcXX'
+--   trim_right(NULL,         N'0', 0)  -> NULL
+-- =============================================
+CREATE OR ALTER FUNCTION mold.trim_right
+(
+    @s                nvarchar(max),
+    @chars            nvarchar(100),
+    @case_insensitive bit
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @s IS NULL OR @chars IS NULL OR DATALENGTH(@chars) = 0
+        RETURN @s;
+
+    DECLARE @i int = DATALENGTH(@s) / 2;
+
+    WHILE @i > 0
+    BEGIN
+        IF ISNULL(@case_insensitive, 0) = 1
+        BEGIN
+            IF CHARINDEX(SUBSTRING(@s, @i, 1), @chars) = 0
+                BREAK;
+        END
+        ELSE
+        BEGIN
+            IF CHARINDEX(
+                SUBSTRING(@s, @i, 1) COLLATE Latin1_General_100_BIN2,
+                @chars COLLATE Latin1_General_100_BIN2
+            ) = 0
+                BREAK;
+        END;
+
+        SET @i -= 1;
+    END;
+
+    RETURN LEFT(@s, @i);
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_both.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.trim_both
+-- =============================================
+-- Removes every leading and trailing character in @chars from @s.
+-- Equivalent to TRIM(@chars FROM @s) on SQL Server 2022, and to
+-- mold.trim_left(mold.trim_right(@s, @chars), @chars)
+-- on older versions.
+-- =============================================
+create or alter function mold.trim_both
+(
+    @s     nvarchar(max),
+    @chars nvarchar(100)
+)
+returns nvarchar(max)
+as
+begin
+    return mold.trim_left(mold.trim_right(@s, @chars), @chars);
+end
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/trim_trailing_zeros.sql
+-- ---------------------------------------------
+create or alter function mold.trim_trailing_zeros(@s nvarchar(max))
+returns nvarchar(max)
+as
+begin
+    while len(@s) > 0 and right(@s, 1) = '0'
+        set @s = left(@s, len(@s) - 1);
+    if right(@s, 1) = '.'
+        set @s = left(@s, len(@s) - 1);
+    return @s;
+end
+go
+
+
+-- ---------------------------------------------
+-- helpers/functions/trim_whitespace.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold.ltrim_whitespace
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    IF @value IS NULL
+        RETURN NULL;
+
+    DECLARE @codepoint int;
+
+    WHILE DATALENGTH(@value) > 0
+    BEGIN
+        SET @codepoint = UNICODE(LEFT(@value, 1));
+
+        IF NOT
+        (
+            @codepoint BETWEEN 9 AND 13
+            OR @codepoint IN
+            (
+                32,       -- U+0020 SPACE
+                133,      -- U+0085 NEXT LINE
+                160,      -- U+00A0 NO-BREAK SPACE
+                5760,     -- U+1680 OGHAM SPACE MARK
+                8232,     -- U+2028 LINE SEPARATOR
+                8233,     -- U+2029 PARAGRAPH SEPARATOR
+                8239,     -- U+202F NARROW NO-BREAK SPACE
+                8287,     -- U+205F MEDIUM MATHEMATICAL SPACE
+                12288     -- U+3000 IDEOGRAPHIC SPACE
+            )
+            OR @codepoint BETWEEN 8192 AND 8202
+        )
+            BREAK;
+
+        SET @value = SUBSTRING(
+            @value,
+            2,
+            DATALENGTH(@value) / 2
+        );
+    END;
+
+    RETURN @value;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.rtrim_whitespace
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN REVERSE(
+        mold.ltrim_whitespace(
+            REVERSE(@value)
+        )
+    );
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.trim_whitespace
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN mold.ltrim_whitespace(
+        mold.rtrim_whitespace(@value)
+    );
+END;
+GO
+
+go
+
+-- ---------------------------------------------
 -- helpers/functions/is_empty.sql
 -- ---------------------------------------------
-create or alter function mold.is_empty(@x nvarchar(max))
+CREATE OR ALTER FUNCTION mold.is_empty
+(
+    @x nvarchar(max)
+)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE
+        WHEN @x IS NULL
+          OR DATALENGTH(mold.trim_whitespace(@x)) = 0
+        THEN 1
+        ELSE 0
+    END;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/is_null_or_empty.sql
+-- ---------------------------------------------
+create or alter function mold.is_null_or_empty(@x nvarchar(max))
 returns bit
 as
 begin
     return case
-		when len(isnull(TRIM(NCHAR(0x09) + NCHAR(0x0A) + NCHAR(0x0B) + NCHAR(0x0C) + NCHAR(0x0D) + NCHAR(0x20) FROM @x), '')) = 0
-		then 1 else 0
+		when @x is null or DATALENGTH(@x) = 0 then 1
+		else 0
 	end
 end
 go
 
 
 -- ---------------------------------------------
--- helpers/functions/is_integer.sql
+-- helpers/functions/is_null_or_whitespace.sql
 -- ---------------------------------------------
-create or alter function mold.[is_integer]
+CREATE OR ALTER FUNCTION mold.is_null_or_whitespace
 (
-	@x varchar(20)
+    @value nvarchar(max)
 )
-returns bit
-as
-begin
-	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
-end
-go
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE
+        WHEN @value IS NULL
+          OR DATALENGTH(
+                mold.trim_whitespace(@value)
+             ) = 0
+        THEN 1
+        ELSE 0
+    END;
+END;
+GO
 
+go
 
 -- ---------------------------------------------
 -- helpers/functions/is_whitespace.sql
@@ -292,22 +676,26 @@ go
 --   is_whitespace(NCHAR(9))    -> 1
 --   is_whitespace(N'a' + NCHAR(10) + N'b') -> 0
 -- =============================================
-create or alter function mold.is_whitespace
+CREATE OR ALTER FUNCTION mold.is_whitespace
 (
     @value nvarchar(max)
 )
-returns bit
-as
-begin
-    if @value is null return 0;
+RETURNS bit
+AS
+BEGIN
+    IF @value IS NULL
+        RETURN 0;
 
-    return case
-        when patindex(N'%[^ ' + char(9) + char(10) + char(13) + N']%', @value) = 0 then 1
-        else 0
-    end;
-end
+    RETURN CASE
+        WHEN DATALENGTH(
+            mold.trim_whitespace(@value)
+        ) = 0 THEN 1
+        ELSE 0
+    END;
+END;
+GO
+
 go
-
 
 -- ---------------------------------------------
 -- helpers/functions/json_array_equals.sql
@@ -439,67 +827,6 @@ GO
 go
 
 -- ---------------------------------------------
--- helpers/functions/json_equals.sql
--- ---------------------------------------------
-create or alter function mold.json_equals
-(
-    @Json1 NVARCHAR(MAX),
-    @Json2 NVARCHAR(MAX)
-)
-RETURNS BIT
-AS
-BEGIN
-    DECLARE @Result BIT = 0
-    
-    -- Handle NULL cases
-    IF (@Json1 IS NULL AND @Json2 IS NULL)
-        RETURN 1
-    
-    IF (@Json1 IS NULL OR @Json2 IS NULL)
-        RETURN 0
-    
-    -- Handle empty strings
-    DECLARE @TrimmedJson1 NVARCHAR(MAX) = LTRIM(RTRIM(@Json1))
-    DECLARE @TrimmedJson2 NVARCHAR(MAX) = LTRIM(RTRIM(@Json2))
-    
-    IF (@TrimmedJson1 = '' AND @TrimmedJson2 = '')
-        RETURN 1
-        
-    IF (@TrimmedJson1 = '' OR @TrimmedJson2 = '')
-        RETURN 0
-    
-    -- Validate JSON format
-    IF (ISJSON(@Json1) = 0 OR ISJSON(@Json2) = 0)
-        RETURN 0
-    
-    -- Fast path: identical strings
-    IF (@TrimmedJson1 = @TrimmedJson2)
-        RETURN 1
-    
-    -- Check JSON types
-    DECLARE @FirstChar1 CHAR(1) = LEFT(@TrimmedJson1, 1)
-    DECLARE @FirstChar2 CHAR(1) = LEFT(@TrimmedJson2, 1)
-    
-    -- Different JSON types
-    IF (@FirstChar1 != @FirstChar2)
-        RETURN 0
-    
-    -- Arrays
-    IF (@FirstChar1 = '[')
-        RETURN mold.json_array_equals(@Json1, @Json2)
-    
-    -- Objects
-    IF (@FirstChar1 = '{')
-        RETURN mold.json_object_equals(@Json1, @Json2)
-    
-    -- Scalars
-    RETURN CASE WHEN @TrimmedJson1 = @TrimmedJson2 THEN 1 ELSE 0 END
-END
-GO
-
-go
-
--- ---------------------------------------------
 -- helpers/functions/json_object_equals.sql
 -- ---------------------------------------------
 create or alter function mold.json_object_equals
@@ -575,6 +902,67 @@ BEGIN
     END
     
     RETURN @Result
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- helpers/functions/json_equals.sql
+-- ---------------------------------------------
+create or alter function mold.json_equals
+(
+    @Json1 NVARCHAR(MAX),
+    @Json2 NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @Result BIT = 0
+    
+    -- Handle NULL cases
+    IF (@Json1 IS NULL AND @Json2 IS NULL)
+        RETURN 1
+    
+    IF (@Json1 IS NULL OR @Json2 IS NULL)
+        RETURN 0
+    
+    -- Handle empty strings
+    DECLARE @TrimmedJson1 NVARCHAR(MAX) = LTRIM(RTRIM(@Json1))
+    DECLARE @TrimmedJson2 NVARCHAR(MAX) = LTRIM(RTRIM(@Json2))
+    
+    IF (@TrimmedJson1 = '' AND @TrimmedJson2 = '')
+        RETURN 1
+        
+    IF (@TrimmedJson1 = '' OR @TrimmedJson2 = '')
+        RETURN 0
+    
+    -- Validate JSON format
+    IF (ISJSON(@Json1) = 0 OR ISJSON(@Json2) = 0)
+        RETURN 0
+    
+    -- Fast path: identical strings
+    IF (@TrimmedJson1 = @TrimmedJson2)
+        RETURN 1
+    
+    -- Check JSON types
+    DECLARE @FirstChar1 CHAR(1) = LEFT(@TrimmedJson1, 1)
+    DECLARE @FirstChar2 CHAR(1) = LEFT(@TrimmedJson2, 1)
+    
+    -- Different JSON types
+    IF (@FirstChar1 != @FirstChar2)
+        RETURN 0
+    
+    -- Arrays
+    IF (@FirstChar1 = '[')
+        RETURN mold.json_array_equals(@Json1, @Json2)
+    
+    -- Objects
+    IF (@FirstChar1 = '{')
+        RETURN mold.json_object_equals(@Json1, @Json2)
+    
+    -- Scalars
+    RETURN CASE WHEN @TrimmedJson1 = @TrimmedJson2 THEN 1 ELSE 0 END
 END
 GO
 
@@ -763,6 +1151,52 @@ GO
 go
 
 -- ---------------------------------------------
+-- helpers/functions/string_compare.sql
+-- ---------------------------------------------
+create or alter function mold.string_compare
+(
+    @a          nvarchar(max),
+    @b          nvarchar(max),
+    @trim       bit,
+    @ignoreCase bit
+)
+returns smallint
+as
+begin
+    set @a = isnull(@a, n'');
+    set @b = isnull(@b, n'');
+
+    if @trim = 1
+    begin
+        set @a = mold.trim_both(@a);
+        set @b = mold.trim_both(@b);
+    end
+
+    if @ignoreCase = 1
+        return
+            case
+                when datalength(@a) = datalength(@b)
+                 and @a collate Latin1_General_CI_AS
+                   = @b collate Latin1_General_CI_AS then 0
+                when @a collate Latin1_General_CI_AS
+                   < @b collate Latin1_General_CI_AS then -1
+                else 1
+            end;
+
+    return
+        case
+            when datalength(@a) = datalength(@b)
+             and @a collate Latin1_General_CS_AS
+               = @b collate Latin1_General_CS_AS then 0
+            when @a collate Latin1_General_CS_AS
+               < @b collate Latin1_General_CS_AS then -1
+            else 1
+        end;
+end
+go
+
+
+-- ---------------------------------------------
 -- helpers/functions/string_equals.sql
 -- ---------------------------------------------
 -- =============================================
@@ -794,140 +1228,11 @@ create or alter function mold.string_equals
 returns bit
 as
 begin
-    set @a = isnull(@a, N'');
-    set @b = isnull(@b, N'');
-
-    if @trim = 1
-    begin
-        set @a = trim(@a);
-        set @b = trim(@b);
-    end
-
-    if @ignoreCase = 1
-        return case
-            when @a collate Latin1_General_CI_AS
-               = @b collate Latin1_General_CI_AS then 1
-            else 0
-        end;
-
     return case
-        when @a collate Latin1_General_CS_AS
-           = @b collate Latin1_General_CS_AS then 1
+        when mold.string_compare(@a, @b, @trim, @ignoreCase) = 0
+            then 1
         else 0
     end;
-end
-go
-
-
--- ---------------------------------------------
--- helpers/functions/trim_both.sql
--- ---------------------------------------------
--- =============================================
--- mold.trim_both
--- =============================================
--- Removes every leading and trailing character in @chars from @s.
--- Equivalent to TRIM(@chars FROM @s) on SQL Server 2022, and to
--- mold.trim_left(mold.trim_right(@s, @chars), @chars)
--- on older versions.
--- =============================================
-create or alter function mold.trim_both
-(
-    @s     nvarchar(max),
-    @chars nvarchar(100)
-)
-returns nvarchar(max)
-as
-begin
-    return mold.trim_left(mold.trim_right(@s, @chars), @chars);
-end
-
-go
-
--- ---------------------------------------------
--- helpers/functions/trim_left.sql
--- ---------------------------------------------
--- =============================================
--- mold.trim_left
--- =============================================
--- Removes every leading character in @chars from @s.
--- Portable replacement for the SQL Server 2022 LEADING form of TRIM.
---
--- Examples:
---   trim_left(N'000124',   N'0')  -> N'124'
---   trim_left(N'   hello', N' ')  -> N'hello'
---   trim_left(N'xxabc',    N'x')  -> N'abc'
---   trim_left(NULL,        N'0')  -> NULL
--- =============================================
-create or alter function mold.trim_left
-(
-    @s     nvarchar(max),
-    @chars nvarchar(100)
-)
-returns nvarchar(max)
-as
-begin
-    if @s is null or @chars is null or @chars = N''
-        return @s;
-
-    declare @i int = 1;
-    declare @n int = len(@s);
-
-    while @i <= @n and charindex(substring(@s, @i, 1), @chars) > 0
-        set @i += 1;
-
-    return substring(@s, @i, @n - @i + 1);
-end
-
-go
-
--- ---------------------------------------------
--- helpers/functions/trim_right.sql
--- ---------------------------------------------
--- =============================================
--- mold.trim_right
--- =============================================
--- Removes every trailing character in @chars from @s.
--- Portable replacement for the SQL Server 2022 TRAILING form of TRIM.
---
--- Examples:
---   trim_right(N'124.23000', N'0')  -> N'124.23'
---   trim_right(N'hello   ',  N' ')  -> N'hello'
---   trim_right(N'abcxx',     N'x')  -> N'abc'
---   trim_right(NULL,         N'0')  -> NULL
--- =============================================
-create or alter function mold.trim_right
-(
-    @s     nvarchar(max),
-    @chars nvarchar(100)
-)
-returns nvarchar(max)
-as
-begin
-    if @s is null or @chars is null or @chars = N''
-        return @s;
-
-    declare @i int = len(@s);
-
-    while @i > 0 and charindex(substring(@s, @i, 1), @chars) > 0
-        set @i -= 1;
-
-    return left(@s, @i);
-end
-
-go
-
--- ---------------------------------------------
--- helpers/functions/trim_trailing_zeros.sql
--- ---------------------------------------------
-create or alter function mold.trim_trailing_zeros(@s nvarchar(max))
-returns nvarchar(max)
-as
-begin
-    while len(@s) > 0 and right(@s, 1) = '0'
-        set @s = left(@s, len(@s) - 1);
-    if right(@s, 1) = '.'
-        set @s = left(@s, len(@s) - 1);
-    return @s;
 end
 go
 
@@ -996,226 +1301,75 @@ go
 
 
 -- ---------------------------------------------
--- functions/_rtrim_chars.sql
+-- helpers/procedures/str_compare.sql
 -- ---------------------------------------------
+
 -- =============================================
--- mold._rtrim_chars
+-- mold.str_compare
 -- =============================================
--- Removes any trailing characters in @chars from @s. Portable replacement for
--- RTRIM(@s, @chars), which requires SQL Server 2022 / compat level 160+.
+-- Compares two strings using the specified collation.
 --
--- Examples:
---   _rtrim_chars(N'Users.',   N'.')   -> N'Users'
---   _rtrim_chars(N'Users..',  N'.')   -> N'Users'
---   _rtrim_chars(N'Users.  ', N'. ')  -> N'Users'
---   _rtrim_chars(NULL,        N'.')   -> NULL
+-- @collation  The collation used for comparison.
+-- @result     -1 = @a is less than @b
+--              0 = @a equals @b
+--              1 = @a is greater than @b
+--
+-- NULL is treated as an empty string.
+--
+-- Note:
+-- SQL Server collation comparison semantics apply.
+-- In particular, trailing spaces are ignored during
+-- string equality comparisons.
 -- =============================================
-CREATE OR ALTER FUNCTION mold._rtrim_chars
+
+create or alter procedure mold.str_compare
 (
-    @s     nvarchar(max),
-    @chars nvarchar(100)
-)
-RETURNS nvarchar(max)
-AS
-BEGIN
-    IF @s IS NULL OR @chars IS NULL OR @chars = N''
-        RETURN @s;
-
-    DECLARE @i int = LEN(@s);
-    WHILE @i > 0 AND CHARINDEX(SUBSTRING(@s, @i, 1), @chars) > 0
-        SET @i -= 1;
-
-    RETURN LEFT(@s, @i);
-END
-GO
-
-go
-
--- ---------------------------------------------
--- functions/_object_id.sql
--- ---------------------------------------------
-create or alter function mold._object_id
-(
-	@db				nvarchar(500),
-	@schema			nvarchar(500),
-	@object_name	nvarchar(500)
-)
-returns int
-as
-begin
-	return object_id(
-                quotename(isnull(@db, db_name()))
-              + N'.' + quotename(isnull(@schema, N'dbo'))
-              + N'.' + quotename(@object_name)
-		)
-end
-go
-
-
--- ---------------------------------------------
--- functions/parse_table_name.sql
--- ---------------------------------------------
-create or alter function mold.parse_table_name(@name nvarchar(1000))
-returns @result table 
-(
-	[object_id]	int,
-	[db] 		nvarchar(500),
-	[schema] 	nvarchar(500),
-	[table] 	nvarchar(500),
-	[column] 	nvarchar(500)
+    @a          nvarchar(max),
+    @b          nvarchar(max),
+    @collation  sysname,
+    @result     int output
 )
 as
 begin
-	set @name = trim(@name)
+    set nocount on;
 
-	if @name is null or len(@name) = 0
-		return
-	
-	declare @db nvarchar(500)
-	declare @schema nvarchar(500)
-	declare @table nvarchar(500)
-	declare @column nvarchar(500)
+    set @result = null;
 
-	declare @part1 nvarchar(500)
-	declare @part2 nvarchar(500)
-	declare @part3 nvarchar(500)
-	declare @part4 nvarchar(500)
+    -- Validate the collation name.
+    if @collation is null
+       or not exists
+       (
+           select 1
+           from sys.fn_helpcollations()
+           where name = @collation
+       )
+    begin
+        throw 50001, 'Invalid collation name.', 1;
+    end;
 
-	select
-		@part1 = parsename(@name, 4),
-		@part2 = parsename(@name, 3),
-		@part3 = parsename(@name, 2),
-		@part4 = parsename(@name, 1)
+    -- Treat NULL as an empty string.
+    set @a = isnull(@a, n'');
+    set @b = isnull(@b, n'');
 
-	if @part1 is null and @part2 is null and @part3 is null
-	begin
-		set @schema = 'dbo'
-		set @table = @part4
-	end
-	else
-	if @part1 is null and @part2 is null
-	begin
-		set @schema = @part3
-		set @table = @part4
-	end
-	else
-	if @part1 is null
-	begin
-		set @db = @part2
-		set @schema = @part3
-		set @table = @part4
-	end
-	else
-	begin
-		set @db = @part1
-		set @schema = @part2
-		set @table = @part3
-		set @column = @part4
-	end
+    declare @sql nvarchar(max);
 
-	insert into @result
-	(
-		[object_id],
-		[db],
-		[schema],
-		[table],
-		[column]
-	)
-	values
-	(
-		mold._object_id(@db, @schema, @table),
-		@db,
-		@schema,
-		@table,
-		@column
-	)
+    set @sql =
+        n'select @result =
+            case
+                when @a collate ' + quotename(@collation) + n'
+                   = @b collate ' + quotename(@collation) + n' then 0
+                when @a collate ' + quotename(@collation) + n'
+                   < @b collate ' + quotename(@collation) + n' then -1
+                else 1
+            end;';
 
-	return
+    exec sys.sp_executesql
+        @sql,
+        n'@a nvarchar(max), @b nvarchar(max), @result int output',
+        @a = @a,
+        @b = @b,
+        @result = @result output;
 end
-go
-
-
--- ---------------------------------------------
--- functions/parse_column_name.sql
--- ---------------------------------------------
-create or alter function mold.parse_column_name(@name nvarchar(1000))
-returns @result table 
-(
-	[object_id]	int,
-	[db] 		nvarchar(500),
-	[schema] 	nvarchar(500),
-	[table] 	nvarchar(500),
-	[column] 	nvarchar(500)
-)
-as
-begin
-	set @name = trim(@name)
-	
-	if @name is null or len(@name) = 0
-		return
-	
-	declare @db nvarchar(500)
-	declare @schema nvarchar(500)
-	declare @table nvarchar(500)
-	declare @column nvarchar(500)
-
-	declare @part1 nvarchar(500)
-	declare @part2 nvarchar(500)
-	declare @part3 nvarchar(500)
-	declare @part4 nvarchar(500)
-
-	select
-		@part1 = parsename(@name, 4),
-		@part2 = parsename(@name, 3),
-		@part3 = parsename(@name, 2),
-		@part4 = parsename(@name, 1)
-
-	if @part1 is null and @part2 is null and @part3 is null
-	begin
-		set @column = @part4
-	end
-	else
-	if @part1 is null and @part2 is null
-	begin
-		set @schema = 'dbo'
-		set @table = @part3
-		set @column = @part4
-	end
-	else
-	if @part1 is null
-	begin
-		set @schema = @part2
-		set @table = @part3
-		set @column = @part4
-	end
-	else
-	begin
-		set @db = @part1
-		set @schema = @part2
-		set @table = @part3
-		set @column = @part4
-	end
-
-	insert into @result
-	(
-		[object_id],
-		[db],
-		[schema],
-		[table],
-		[column]
-	)
-	values
-	(
-		mold._object_id(@db, @schema, @table),
-		@db,
-		@schema,
-		@table,
-		@column
-	)
-
-	return
-end
-
 go
 
 
@@ -1266,1074 +1420,184 @@ GO
 go
 
 -- ---------------------------------------------
--- functions/_parse_column_list.sql
+-- functions/default_schema.sql
 -- ---------------------------------------------
--- =============================================
--- mold._parse_column_list
--- =============================================
-CREATE OR ALTER FUNCTION mold._parse_column_list
-(
-    @name nvarchar(1000)
-)
-RETURNS TABLE
-AS
-RETURN
-WITH
-    parsed AS
-    (
-        SELECT
-            ends_with_rparen =
-                CASE
-                    WHEN LEN(@name) >= 1 AND RIGHT(@name, 1) = N')' THEN 1
-                    ELSE 0
-                END
-    ),
-    nums AS
-    (
-        SELECT TOP (LEN(@name))
-            n = ROW_NUMBER() OVER (ORDER BY (SELECT NULL))
-        FROM sys.all_objects a CROSS JOIN sys.all_objects b
-    ),
-    positions AS
-    (
-        SELECT
-            n = nums.n,
-            ch = SUBSTRING(@name, nums.n, 1)
-        FROM nums
-    ),
-    depth_calc AS
-    (
-        SELECT
-            n, ch,
-            depth = SUM(
-                CASE
-                    WHEN ch = N']' THEN 1
-                    WHEN ch = N'[' THEN -1
-                    ELSE 0
-                END
-            ) OVER (ORDER BY n ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
-        FROM positions
-    ),
-    matching_open AS
-    (
-        SELECT TOP (1) n AS open_pos
-        FROM depth_calc
-        WHERE ch = N'('
-          AND ISNULL(depth, 0) = 0
-          AND (SELECT ends_with_rparen FROM parsed) = 1
-        ORDER BY n DESC
-    ),
-    parts AS
-    (
-        SELECT
-            table_part =
-                CASE
-                    WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
-                        mold._rtrim_chars(
-                            LEFT(@name, (SELECT open_pos FROM matching_open) - 1),
-                            N'.')
-                    ELSE @name
-                END,
-            column_part =
-                CASE
-                    WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
-                        SUBSTRING(@name,
-                            (SELECT open_pos FROM matching_open) + 1,
-                            LEN(@name) - (SELECT open_pos FROM matching_open) - 1)
-                    ELSE NULL
-                END
-        FROM parsed
-    ),
-    tbl AS
-    (
-        SELECT
-            pt.[object_id],
-            pt.[db],
-            pt.[schema],
-            pt.[table],
-            pp.column_part
-        FROM parts pp
-        CROSS APPLY mold.parse_table_name(pp.table_part) pt
-    )
--- Branch 1: multi-column form.
-SELECT
-    [object_id] = t.object_id,
-    [db]        = ISNULL(t.[db], DB_NAME()),
-    schema_name = t.[schema],
-    table_name  = t.[table],
-    column_name = LTRIM(RTRIM(j.[value])),
-    ord         = j.[key] + 1
-FROM tbl t
-CROSS APPLY OPENJSON(
-    N'[' + ISNULL(
-        N'"' + REPLACE(REPLACE(t.column_part, N'"', N'""'), N',', N'","') + N'"',
-        N'null'
-    ) + N']'
-) j
-WHERE t.column_part IS NOT NULL
-
-UNION ALL
-
--- Branch 2: single-column form.
-SELECT
-    [object_id] = pc.[object_id],
-    [db]        = ISNULL(pc.[db], DB_NAME()),
-    schema_name = pc.[schema],
-    table_name  = pc.[table],
-    column_name = pc.[column],
-    ord         = 1
-FROM mold.parse_column_name(@name) pc
-WHERE NOT EXISTS (SELECT 1 FROM parts WHERE column_part IS NOT NULL)
-  AND pc.[column] IS NOT NULL;
-GO
-
-go
-
--- ---------------------------------------------
--- functions/default_exists.sql
--- ---------------------------------------------
--- =============================================
--- mold.default_exists
--- =============================================
--- Returns 1 if the column has a default constraint (optionally matching
--- a specific value), 0 otherwise.
---
--- Accepts a column reference in these forms:
---   'Products.IsShipped'                -> dbo.Products.IsShipped
---   'sales.Products.IsShipped'          -> sales.Products.IsShipped
---   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
---   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
---
--- If @expected_value is NULL, only the presence of the default is checked.
--- If @expected_value is provided, the default definition is normalized
--- (via _normalize_default) and compared to the normalized expected value.
--- =============================================
-CREATE OR ALTER FUNCTION mold.default_exists
-(
-    @name           nvarchar(1000),
-    @expected_value nvarchar(max) = NULL
-)
-RETURNS bit
-AS
-BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
-        RETURN 0;
-
-    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
-
-    SELECT
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table],
-        @column = p.[column]
-    FROM mold.parse_column_name(@name) p;
-
-    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
-        RETURN 0;
-
-    DECLARE @table_id int = OBJECT_ID(
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table), N'U');
-
-    IF @table_id IS NULL
-        RETURN 0;
-
-    DECLARE @definition nvarchar(max);
-
-    SELECT @definition = dc.definition
-    FROM sys.default_constraints dc
-    JOIN sys.columns c
-      ON c.object_id = dc.parent_object_id
-     AND c.column_id = dc.parent_column_id
-    WHERE dc.parent_object_id = @table_id
-      AND c.name = @column;
-
-    IF @definition IS NULL
-        RETURN 0;
-
-    -- Presence-only check.
-    IF @expected_value IS NULL
-        RETURN 1;
-
-    -- Value check.
-    DECLARE @actual_norm   nvarchar(max) = mold._normalize_default(@definition);
-    DECLARE @expected_norm nvarchar(max) = mold._normalize_default(@expected_value);
-
-    RETURN CASE WHEN @actual_norm = @expected_norm THEN 1 ELSE 0 END;
-END;
-GO
-
-go
-
--- ---------------------------------------------
--- functions/foreign_key_exists.sql
--- ---------------------------------------------
--- =============================================
--- mold.foreign_key_exists
--- =============================================
-CREATE OR ALTER FUNCTION mold.foreign_key_exists
-(
-    @fk_column nvarchar(1000),
-    @pk_column nvarchar(1000)
-)
-RETURNS bit
-AS
-BEGIN
-    IF @fk_column IS NULL OR LTRIM(RTRIM(@fk_column)) = ''
-        RETURN 0;
-    IF @pk_column IS NULL OR LTRIM(RTRIM(@pk_column)) = ''
-        RETURN 0;
-
-    DECLARE @fk TABLE
-    (
-        [db]        sysname,
-        [schema]    sysname,
-        [table]     sysname,
-        [column]    sysname,
-        ord         int
-    );
-
-    DECLARE @pk TABLE
-    (
-        [db]        sysname,
-        [schema]    sysname,
-        [table]     sysname,
-        [column]    sysname,
-        ord         int
-    );
-
-    -- NOTE: _parse_column_list returns columns named
-    -- schema_name and table_name (not schema / table).
-    INSERT INTO @fk ([db], [schema], [table], [column], ord)
-    SELECT [db], schema_name, table_name, column_name, ord
-    FROM mold._parse_column_list(@fk_column);
-
-    INSERT INTO @pk ([db], [schema], [table], [column], ord)
-    SELECT [db], schema_name, table_name, column_name, ord
-    FROM mold._parse_column_list(@pk_column);
-
-    IF NOT EXISTS (SELECT 1 FROM @fk) OR NOT EXISTS (SELECT 1 FROM @pk)
-        RETURN 0;
-
-    DECLARE @fk_count int = (SELECT COUNT(*) FROM @fk);
-    DECLARE @pk_count int = (SELECT COUNT(*) FROM @pk);
-    IF @fk_count <> @pk_count
-        RETURN 0;
-
-    DECLARE @fk_db sysname, @fk_schema sysname, @fk_table sysname;
-    DECLARE @pk_db sysname, @pk_schema sysname, @pk_table sysname;
-
-    SELECT TOP (1)
-        @fk_db = [db], @fk_schema = [schema], @fk_table = [table]
-    FROM @fk;
-
-    SELECT TOP (1)
-        @pk_db = [db], @pk_schema = [schema], @pk_table = [table]
-    FROM @pk;
-
-    DECLARE @fk_table_id int = OBJECT_ID(
-        QUOTENAME(@fk_db) + N'.' + QUOTENAME(@fk_schema) + N'.' + QUOTENAME(@fk_table), N'U');
-    DECLARE @pk_table_id int = OBJECT_ID(
-        QUOTENAME(@pk_db) + N'.' + QUOTENAME(@pk_schema) + N'.' + QUOTENAME(@pk_table), N'U');
-
-    IF @fk_table_id IS NULL OR @pk_table_id IS NULL
-        RETURN 0;
-
-    RETURN CASE
-        WHEN EXISTS (
-            SELECT 1
-            FROM sys.foreign_key_columns fkc
-            JOIN sys.foreign_keys fk
-              ON fk.object_id = fkc.constraint_object_id
-            JOIN sys.columns fk_col
-              ON fk_col.object_id = fkc.parent_object_id
-             AND fk_col.column_id = fkc.parent_column_id
-            JOIN sys.columns pk_col
-              ON pk_col.object_id = fkc.referenced_object_id
-             AND pk_col.column_id = fkc.referenced_column_id
-            JOIN @fk f
-              ON f.ord = fkc.constraint_column_id
-             AND f.[column] = fk_col.name
-            JOIN @pk p
-              ON p.ord = fkc.constraint_column_id
-             AND p.[column] = pk_col.name
-            WHERE fkc.parent_object_id     = @fk_table_id
-              AND fkc.referenced_object_id = @pk_table_id
-            GROUP BY fk.object_id
-            HAVING COUNT(*) = @fk_count
-        ) THEN 1
-        ELSE 0
-    END;
-END;
-GO
-
-go
-
--- ---------------------------------------------
--- functions/primary_key_exists.sql
--- ---------------------------------------------
-/*
-    Function: primary_key_exists
-
-    Description:
-        Determines whether the specified table has a primary key whose
-        complete column list matches the supplied columns in the same order.
-
-    Input:
-        @name - A table-and-column specification accepted by _parse_column_list.
-                Examples:
-                    N'dbo.Users.Id'
-                    N'dbo.UserRoles(UserId,RoleId'
-
-    Returns:
-        bit
-            1 - The table's primary key contains exactly the supplied columns,
-                in the supplied order.
-            0 - The table does not exist, has no primary key, the supplied
-                columns do not exactly match its primary key, the input is
-                invalid, or the specification refers to another database.
-
-    Notes:
-        - Uses _parse_column_list to parse the input.
-        - Checks metadata in the current database only. A scalar UDF cannot
-          use dynamic SQL to inspect an arbitrary database.
-        - Composite-key column order is significant.
-        - A partial or superset column list is not considered a match.
-*/
-
-CREATE OR ALTER FUNCTION mold.primary_key_exists
-(
-    @name nvarchar(1000)
-)
-RETURNS bit
-AS
-BEGIN
-    DECLARE
-        @db sysname,
-        @schema_name sysname,
-        @table_name sysname,
-        @object_id int,
-        @column_count int;
-
-    DECLARE @columns TABLE
-    (
-        column_name sysname,
-        ord int
-    );
-
-    INSERT INTO @columns (column_name, ord)
-    SELECT column_name, ord
-    FROM mold._parse_column_list(@name);
-
-    SELECT TOP (1)
-        @db = db,
-        @schema_name = schema_name,
-        @table_name = table_name
-    FROM mold._parse_column_list(@name);
-
-    SELECT @column_count = COUNT(*)
-    FROM @columns;
-
-    -- A valid specification must identify a database, schema, table,
-    -- and at least one column.
-    IF @column_count = 0
-       OR @db IS NULL
-       OR @schema_name IS NULL
-       OR @table_name IS NULL
-        RETURN 0;
-
-    -- Scalar UDFs cannot use dynamic SQL to inspect another database.
-    IF @db <> DB_NAME()
-        RETURN 0;
-
-    SELECT @object_id = t.object_id
-    FROM sys.tables t
-    INNER JOIN sys.schemas s
-        ON s.schema_id = t.schema_id
-    WHERE s.name = @schema_name
-      AND t.name = @table_name;
-
-    IF @object_id IS NULL
-        RETURN 0;
-
-    /*
-        Match a primary-key constraint only when:
-          1. Its number of key columns equals the requested column count.
-          2. Every requested column matches the key column at the same
-             ordinal position.
-
-        The second condition uses a double NOT EXISTS so that every
-        requested column must have a corresponding key column.
-    */
-    IF EXISTS
-    (
-        SELECT 1
-        FROM sys.key_constraints kc
-        WHERE kc.parent_object_id = @object_id
-          AND kc.type = N'PK'
-          AND
-          (
-              SELECT COUNT(*)
-              FROM sys.index_columns ic
-              WHERE ic.object_id = kc.parent_object_id
-                AND ic.index_id = kc.unique_index_id
-                AND ic.key_ordinal > 0
-          ) = @column_count
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM @columns requested
-              WHERE NOT EXISTS
-              (
-                  SELECT 1
-                  FROM sys.index_columns ic
-                  INNER JOIN sys.columns c
-                      ON c.object_id = ic.object_id
-                     AND c.column_id = ic.column_id
-                  WHERE ic.object_id = kc.parent_object_id
-                    AND ic.index_id = kc.unique_index_id
-                    AND ic.key_ordinal = requested.ord
-                    AND c.name = requested.column_name
-              )
-          )
-    )
-        RETURN 1;
-
-    RETURN 0;
-END
-GO
-
-go
-
--- ---------------------------------------------
--- functions/column_default.sql
--- ---------------------------------------------
--- =============================================
--- mold.column_default
--- =============================================
--- Returns the default-constraint definition for a column, or NULL if
--- the column has no default constraint (or the table/column does not
--- exist).
---
--- The returned value is the raw definition from sys.default_constraints
--- (e.g. '((0))', '(getdate())', 'N''hello'''). Use default_exists if you
--- want to compare against an expected value; that function normalizes
--- both sides via _normalize_default.
---
--- Input formats:
---   'Products.IsShipped'                -> dbo.Products.IsShipped
---   'sales.Products.IsShipped'          -> sales.Products.IsShipped
---   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
---   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
--- =============================================
-CREATE OR ALTER FUNCTION mold.column_default
-(
-    @name nvarchar(1000)
-)
-RETURNS nvarchar(max)
-AS
-BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
-        RETURN NULL;
-
-    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
-
-    SELECT
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table],
-        @column = p.[column]
-    FROM mold.parse_column_name(@name) p;
-
-    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
-        RETURN NULL;
-
-    DECLARE @full_name nvarchar(1000) =
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
-
-    DECLARE @table_id int = OBJECT_ID(@full_name, N'U');
-    IF @table_id IS NULL
-        RETURN NULL;
-
-    DECLARE @definition nvarchar(max);
-
-    SELECT @definition = dc.definition
-    FROM sys.default_constraints dc
-    JOIN sys.columns c
-      ON c.object_id = dc.parent_object_id
-     AND c.column_id = dc.parent_column_id
-    WHERE dc.parent_object_id = @table_id
-      AND c.name = @column;
-
-    RETURN @definition;
-END;
-GO
-
-go
-
--- ---------------------------------------------
--- functions/column_info.sql
--- ---------------------------------------------
-drop function if exists m.column_info;
-go
--- =============================================
--- mold.column_info
--- =============================================
--- Returns a single row with detailed information about a column,
--- or an empty result set if the column does not exist.
---
--- Input formats:
---   'Table.Column'                  -> dbo.Table.Column
---   'Schema.Table.Column'           -> Schema.Table.Column
---   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
---   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
---
--- Notes:
---   - max_length is the raw sys.columns value, in bytes; -1 means (max).
---   - length is the character count for nchar/nvarchar, the byte count
---     for char/varchar/binary/varbinary, and -1 for (max). It is
---     determined from system_type_id so UDTs based on those types are
---     handled correctly.
---   - is_xml is 1 for the xml system type; is_xml_document is the
---     separate flag from sys.columns that constrains the xml to document
---     form.
---   - default_value is normalized via _normalize_default; default_name
---     is the raw constraint name.
---   - parent_column is the fully qualified referenced column when this
---     column participates in a foreign key as the child side; NULL
---     otherwise. For a column in a composite FK, it names the single
---     referenced column this column maps to.
---   - is_primary_key is 1 when the column is part of the primary key.
---   - parent_column is NULL for the parent (referenced) side of an FK;
---     to find "who references me", query sys.foreign_key_columns with
---     referenced_object_id / referenced_column_id instead.
---   - primary_key_constraint is the name of the primary key constraint
---     when the column participates in the PK, NULL otherwise.
---   - foreign_key_constraint is the name of the foreign key constraint
---     when the column is the child side of an FK, NULL otherwise.
---     For a composite FK, every column in the constraint gets the same
---     constraint name.
---   - parent_column and foreign_key_constraint are both NULL for the
---     referenced (parent) side of an FK; the join reports the child side.
--- =============================================
-create or alter function mold.column_info
-(
-    @name nvarchar(1000)
-)
-returns @result table
-(
-    [db]                nvarchar(1000),
-    schema_name         nvarchar(500),
-    table_name          nvarchar(500),
-    column_name         nvarchar(500),
-    column_id           int,
-    type_name           nvarchar(500),
-    type_schema_id      int,
-    type_schema_name    nvarchar(500),
-    user_type_id        int,
-    system_type_id      int,
-    max_length          int,
-    [length]            int,
-    [precision]         int,
-    scale               int,
-    collation_name      nvarchar(500),
-    is_nullable         bit,
-    is_identity         bit,
-    is_computed         bit,
-    is_persisted        bit,
-    is_sparse           bit,
-    is_filestream       bit,
-    is_xml              bit,
-    is_xml_document     bit,
-    is_rowguidcol       bit,
-    default_value       nvarchar(max),
-    default_name        nvarchar(500),
-    computed_definition nvarchar(max),
-    column_description  nvarchar(max),
-    parent_column       nvarchar(1000),   -- fully qualified parent column when this is an FK, else NULL
-    is_primary_key      bit,              -- 1 when the column participates in the PK, else 0
-    primary_key_constraint  nvarchar(500),   -- name of the PK constraint, NULL if not in the PK
-    foreign_key_constraint  nvarchar(500)   -- name of the FK constraint, NULL if not an FK
-)
+create or alter function mold.default_schema()
+returns sysname
+as
 begin
-    with parsed as
-    (
-        select
-            [object_id], [db], [schema], [table], [column]
-        from mold.parse_column_name(@name)
-        where [column] is not null
-        union
-        select
-            [object_id], [db], [schema], [table], [column]
-        from mold.parse_table_name(@name)
-        where [column] is null
-    )
-    insert @result
-    select
-        [db]                = isnull(p.[db], db_name()),
-        schema_name         = p.[schema],
-        table_name          = p.[table],
-        column_name         = p.[column],
-        column_id           = c.column_id,
-        type_name           = t.name,
-        type_schema_id      = t.schema_id,
-        type_schema_name    = schema_name(t.schema_id),
-        user_type_id        = c.user_type_id,
-        system_type_id      = c.system_type_id,
-        max_length          = c.max_length,
-        [length]            = case
-                                  when c.max_length = -1 then -1
-                                  when c.system_type_id in (231, 239) then c.max_length / 2
-                                  when c.system_type_id in (165, 167, 173, 175) then c.max_length
-                                  else 0
-                              end,
-        [precision]         = c.[precision],
-        scale               = c.scale,
-        collation_name      = c.collation_name,
-        is_nullable         = c.is_nullable,
-        is_identity         = c.is_identity,
-        is_computed         = c.is_computed,
-        is_persisted        = isnull(cc.is_persisted, 0),
-        is_sparse           = c.is_sparse,
-        is_filestream       = c.is_filestream,
-        is_xml              = case when c.system_type_id = 241 then 1 else 0 end,
-        is_xml_document     = c.is_xml_document,
-        is_rowguidcol       = c.is_rowguidcol,
-        default_value       = mold._normalize_default(dc.definition),
-        default_name        = dc.name,
-        computed_definition = cc.definition,
-        column_description  = cast(ep.value as nvarchar(max)),
-        parent_column       = case
-                                  when fk.object_id is null then null
-                                  else quotename(object_schema_name(fkc.referenced_object_id))
-                                     + N'.' + quotename(object_name(fkc.referenced_object_id))
-                                     + N'.' + quotename(rc.name)
-                              end,
-        is_primary_key          = case when pk.column_id is not null then 1 else 0 end,
-        primary_key_constraint  = pk.pk_name,
-        foreign_key_constraint  = fk.name
-    from             parsed                       as p
-          inner join sys.columns                  as c    on  c.object_id = p.object_id
-                                                              and (c.name = p.[column] or p.[column] is null)
-          inner join sys.types                    as t    on  t.user_type_id = c.user_type_id
-          left  join sys.default_constraints      as dc   on  dc.parent_object_id = c.object_id
-                                                              and dc.parent_column_id = c.column_id
-          left  join sys.computed_columns         as cc   on  cc.object_id = c.object_id
-                                                              and cc.column_id = c.column_id
-          left  join sys.extended_properties      as ep   on  ep.major_id = c.object_id
-                                                              and ep.minor_id = c.column_id
-                                                              and ep.name = N'MS_Description'
-                                                              and ep.class = 1
-          left  join sys.foreign_key_columns      as fkc  on  fkc.parent_object_id = c.object_id
-                                                              and fkc.parent_column_id = c.column_id
-          left  join sys.foreign_keys             as fk   on  fk.object_id = fkc.constraint_object_id
-          left  join sys.columns                  as rc   on  rc.object_id = fkc.referenced_object_id
-                                                              and rc.column_id = fkc.referenced_column_id
-          left  join (select ic.object_id, ic.column_id, i.name as pk_name
-                       from sys.index_columns ic
-                       join sys.indexes       i on i.object_id = ic.object_id and i.index_id = ic.index_id
-                       where i.is_primary_key = 1) as pk
-                                                 on  pk.object_id = c.object_id
-                                                              and pk.column_id = c.column_id
-  return;
+	return ISNULL(SCHEMA_NAME(), N'dbo')
 end
 go
 
 
 -- ---------------------------------------------
--- functions/column_api.sql
+-- functions/resolve_db.sql
 -- ---------------------------------------------
--- =============================================
--- Column property functions (scalar)
--- =============================================
--- These are thin wrappers over mold.column_info to make it easy
--- to check a single property of a column.
---
--- All take a single argument: a column reference
---   ('Table.Column', 'Schema.Table.Column', 'Db.Schema.Table.Column', ...).
---
--- If the column does not exist, they return NULL (for most) or 0 (for
--- boolean checks).
--- =============================================
-
-
--- ---------------------------------------------
--- Boolean checks (return bit)
--- ---------------------------------------------
-
-CREATE OR ALTER FUNCTION mold.is_nullable(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_nullable FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_identity(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_identity FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_sparse(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_sparse FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_computed(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_computed FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_filestream(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_filestream FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_xml(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_xml FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_rowguidcol(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_rowguidcol FROM mold.column_info(@name));
-END;
-GO
-
-
--- ---------------------------------------------
--- String / scalar properties
--- ---------------------------------------------
-
-CREATE OR ALTER FUNCTION mold.column_typename(@name nvarchar(1000))
-RETURNS sysname
-AS
-BEGIN
-    RETURN (SELECT TOP(1) type_name FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_collation(@name nvarchar(1000))
-RETURNS sysname
-AS
-BEGIN
-    RETURN (SELECT TOP(1) collation_name FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_desc(@name nvarchar(1000))
-RETURNS nvarchar(max)
-AS
-BEGIN
-    RETURN (SELECT TOP(1) column_description FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_scale(@name nvarchar(1000))
-RETURNS tinyint
-AS
-BEGIN
-    RETURN (SELECT TOP(1) scale FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_precision(@name nvarchar(1000))
-RETURNS tinyint
-AS
-BEGIN
-    RETURN (SELECT TOP(1) [precision] FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_formula(@name nvarchar(1000))
-RETURNS nvarchar(max)
-AS
-BEGIN
-    RETURN (SELECT TOP(1) computed_definition FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_primary_key(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN (SELECT TOP(1) is_primary_key FROM mold.column_info(@name));
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.is_foreign_key(@name nvarchar(1000))
-RETURNS bit
-AS
-BEGIN
-    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE parent_column IS NOT NULL) THEN 1 ELSE 0 END;
-END;
-GO
-
-CREATE OR ALTER FUNCTION mold.column_parent(@name nvarchar(1000))
-RETURNS nvarchar(max)
-AS
-BEGIN
-    RETURN (SELECT STRING_AGG(parent_column, ',') FROM mold.column_info(@name));
-END;
-GO
-
--- =============================================
--- mold.column_fk_name
--- =============================================
--- Returns the name of the foreign key constraint on a column, or NULL
--- when the column is not the child side of any FK.
---
--- If the column participates in more than one FK, the alphabetically
--- first constraint name is returned, so the function is deterministic.
--- Use column_info when you need every constraint name.
--- =============================================
-create or alter function mold.column_fk_name(@name nvarchar(1000))
-returns nvarchar(max)
+create or alter function mold.resolve_db(@db sysname)
+returns sysname
 as
 begin
-    return
-    (
-        select STRING_AGG(foreign_key_constraint, ',')
-        from mold.column_info(@name)
-        where foreign_key_constraint is not null
-    );
-end;
+	RETURN (CASE WHEN mold.is_null_or_empty(@db) = 1 THEN DB_NAME() ELSE @db END);
+end
 go
 
--- =============================================
--- mold.column_pk_name
--- =============================================
--- Returns the name of the primary key constraint on a column, or NULL
--- when the column is not part of the primary key.
--- =============================================
-create or alter function mold.column_pk_name(@name nvarchar(1000))
-returns nvarchar(500)
+
+-- ---------------------------------------------
+-- functions/resolve_schema.sql
+-- ---------------------------------------------
+create or alter function mold.resolve_schema(@db sysname, @schema sysname)
+returns sysname
 as
 begin
-    return (
-        select top(1) primary_key_constraint
-        from mold.column_info(@name)
-    );
-end;
+	DECLARE @current_db	sysname = DB_NAME();
+	DECLARE @target_db	sysname = ISNULL(@db, @current_db);
+
+	RETURN
+	(
+		ISNULL(
+			@schema,
+			CASE
+				WHEN @target_db = @current_db THEN mold.default_schema()
+				ELSE N'dbo'
+			END
+		)
+	);
+end
 go
 
--- ---------------------------------------------
--- column_size: mirrors COL_LENGTH (bytes).
--- Returns NULL if the column does not exist.
-CREATE OR ALTER FUNCTION mold.column_length(@name nvarchar(1000))
-RETURNS int
-AS
-BEGIN
-    RETURN (SELECT TOP(1) max_length FROM mold.column_info(@name));
-END;
-GO
 
 -- ---------------------------------------------
--- column_size: logical length for string columns.
---   varchar  -> max_length
---   nvarchar -> max_length / 2
---   text, ntext -> -1
---   other    -> 0
--- Returns NULL if the column does not exist.
+-- functions/quote_name.sql
 -- ---------------------------------------------
+create or alter function mold.quote_name
+(
+	@db			sysname,
+	@schema		sysname,
+	@table		sysname,
+	@column		sysname
+)
+returns mold.object_name
+as
+begin
+	RETURN
+	(
+		                QUOTENAME(mold.resolve_db(@db))
+		       + N'.' + QUOTENAME(mold.resolve_schema(@db, @schema))
+		+ ISNULL(N'.' + QUOTENAME(@table), N'')
+		+ ISNULL(N'.' + QUOTENAME(@column), N'')
+	);
+end
+go
 
-create or alter function mold.column_size(@name nvarchar(1000))
+
+-- ---------------------------------------------
+-- functions/object_id.sql
+-- ---------------------------------------------
+create or alter function mold.object_id
+(
+	@db		sysname,
+	@schema	sysname,
+	@name	sysname,
+	@type	nvarchar(60)
+)
 returns int
 as
 begin
-    declare @system_type_id int, @max_len int;
-
-    select top(1) @system_type_id = system_type_id, @max_len = max_length
-    from mold.column_info(@name);
-
-    if @system_type_id is null
-        return null;
-
-    return case
-        when @system_type_id in (167, 175, 165, 173)      -- varchar, char, varbinary, binary
-            then @max_len
-        when @system_type_id in (231, 239)                -- nvarchar, nchar
-            then case when @max_len = -1 then -1 else @max_len / 2 end
-        when @system_type_id in (35, 99, 241)             -- text, ntext, xml
-            then -1
-        when @system_type_id = 34                          -- image
-            then -1
-        else 0
-    end;
-end;
+	return object_id(mold.quoted_name(@db, @schema, @name), @type)
+end
 go
 
 
 -- ---------------------------------------------
--- functions/column_type.sql
+-- functions/parse_table_name.sql
 -- ---------------------------------------------
--- =============================================
--- mold.column_type
--- =============================================
--- Returns a single row with type information for a column,
--- or an empty result set if the column does not exist.
---
--- Columns returned:
---   type_name, user_type_id, system_type_id
--- =============================================
-CREATE OR ALTER FUNCTION mold.column_type
+create or alter function mold.parse_table_name
 (
-    @name nvarchar(1000)
+	@name mold.object_name
 )
-RETURNS TABLE
-AS
-RETURN
+returns @result table 
 (
-    SELECT
-        type_name,
-        user_type_id,
-        system_type_id
-    FROM mold.column_info(@name)
-);
-GO
-
-go
-
--- ---------------------------------------------
--- functions/table_exists.sql
--- ---------------------------------------------
--- =============================================
--- mold.table_exists
--- =============================================
--- Returns 1 if the specified table exists, 0 otherwise.
---
--- Input formats:
---   'Products'             -> dbo.Products
---   'sales.Products'       -> sales.Products
---   'db.sales.Products'    -> db.sales.Products
---   '#tmp1'                -> tempdb..#tmp1
---   '##tmp2'               -> tempdb..##tmp2
---   '[sales].[My.Table]'   -> sales.[My.Table]
---
--- Unqualified names resolve to dbo (via parse_table_name).
--- Only user tables (type 'U') are recognized.
--- =============================================
-CREATE OR ALTER FUNCTION mold.table_exists
-(
-    @name nvarchar(1000)
+	[object_id]		int,
+	[db] 			sysname,
+	[schema] 		sysname,
+	[table] 		sysname,
+	[column] 		sysname,
+	[quoted_table]	mold.object_name,
+	[quoted_column]	mold.object_name
 )
-RETURNS bit
-AS
-BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
-        RETURN 0;
+as
+begin
+	if mold.is_null_or_empty(@name) = 1
+		return
+	
+	declare @db sysname
+	declare @schema sysname
+	declare @table sysname
+	declare @column sysname
 
-    DECLARE @normalized nvarchar(1000) = LTRIM(RTRIM(@name));
+	declare @part1 sysname
+	declare @part2 sysname
+	declare @part3 sysname
+	declare @part4 sysname
 
-    -- Temp tables: parse_table_name returns schema = NULL and table = '#...'.
-    -- Resolve them in tempdb explicitly.
-    IF LEFT(@normalized, 1) = N'#'
-    BEGIN
-        RETURN CASE
-            WHEN OBJECT_ID(N'tempdb..' + @normalized, N'U') IS NOT NULL THEN 1
-            ELSE 0
-        END;
-    END
+	select
+		@part1 = parsename(@name, 4),
+		@part2 = parsename(@name, 3),
+		@part3 = parsename(@name, 2),
+		@part4 = parsename(@name, 1)
 
-    -- Regular tables.
-    DECLARE @db sysname, @schema sysname, @table sysname;
+	if @part1 is null and @part2 is null and @part3 is null
+	begin
+		set @table = @part4
+	end
+	else
+	if @part1 is null and @part2 is null
+	begin
+		set @schema = @part3
+		set @table = @part4
+	end
+	else
+	if @part1 is null
+	begin
+		set @db = @part2
+		set @schema = @part3
+		set @table = @part4
+	end
+	else
+	begin
+		set @db = @part1
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
 
-    SELECT
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table]
-    FROM mold.parse_table_name(@normalized) p;
+	set @db = mold.resolve_db(@db)
+	set @schema = mold.resolve_schema(@db, @schema);
 
-    -- parse_table_name returns schema = NULL only for temp tables
-    -- (handled above). Any other NULL means an invalid input.
-    IF @schema IS NULL OR @table IS NULL
-        RETURN 0;
-
-    DECLARE @full_name nvarchar(1000) =
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
-
-    RETURN CASE
-        WHEN OBJECT_ID(@full_name, N'U') IS NOT NULL THEN 1
-        ELSE 0
-    END;
-END;
-GO
-
+	insert into @result
+	(
+		[object_id],
+		[db],
+		[schema],
+		[table],
+		[column],
+		[quoted_table]
+	)
+	values
+	(
+		mold.object_id(@db, @schema, @table, N'U'),
+		@db,
+    	@schema,
+		@table,
+		@column,
+		mold.quote_name(@db, @schema, @table, null)
+	)
+	
+	return
+end
 go
 
--- ---------------------------------------------
--- functions/column_exists.sql
--- ---------------------------------------------
--- =============================================
--- mold.column_exists
--- =============================================
--- Returns 1 if the specified column exists on a user table, 0 otherwise.
---
--- Input formats:
---   'Table.Column'                  -> dbo.Table.Column
---   'Schema.Table.Column'           -> Schema.Table.Column
---   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
---   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
---
--- Temp tables are NOT supported (UDF limitation).
--- =============================================
-CREATE OR ALTER FUNCTION mold.column_exists
-(
-    @name nvarchar(1000)
-)
-RETURNS bit
-AS
-BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
-        RETURN 0;
-
-    DECLARE @db sysname, @schema sysname, @table sysname, @column sysname;
-
-    SELECT
-        @db     = ISNULL(p.[db], DB_NAME()),
-        @schema = p.[schema],
-        @table  = p.[table],
-        @column = p.[column]
-    FROM mold.parse_column_name(@name) p;
-
-    -- For temp tables, parse_column_name returns schema = NULL and
-    -- table = '#...'. Reject them (UDFs cannot access temp tables).
-    IF @schema IS NULL OR @table IS NULL OR @column IS NULL
-        RETURN 0;
-
-    IF LEFT(@table, 1) = N'#'
-        RETURN 0;
-
-    DECLARE @full_name nvarchar(1000) =
-        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
-
-    IF OBJECT_ID(@full_name, N'U') IS NULL
-        RETURN 0;
-
-    IF COL_LENGTH(@full_name, @column) IS NULL
-        RETURN 0;
-
-    RETURN 1;
-END;
-GO
-
-go
 
 -- ---------------------------------------------
 -- functions/parse_column_type.sql
@@ -2684,6 +1948,1154 @@ go
 
 
 -- ---------------------------------------------
+-- functions/parse_column_name.sql
+-- ---------------------------------------------
+create or alter function mold.parse_column_name
+(
+	@name mold.object_name
+)
+returns @result table 
+(
+	[object_id]		int,
+	[db] 			sysname,
+	[schema] 		sysname,
+	[table] 		sysname,
+	[column] 		sysname,
+	[quoted_table]	mold.object_name,
+	[quoted_column]	mold.object_name
+)
+as
+begin
+	if mold.is_null_or_empty(@name) = 1
+		return
+	
+	declare @db		sysname
+	declare @schema sysname
+	declare @table	sysname
+	declare @column sysname
+
+	declare @part1 sysname
+	declare @part2 sysname
+	declare @part3 sysname
+	declare @part4 sysname
+
+	select
+		@part1 = parsename(@name, 4),
+		@part2 = parsename(@name, 3),
+		@part3 = parsename(@name, 2),
+		@part4 = parsename(@name, 1)
+
+	if @part1 is null and @part2 is null and @part3 is null
+	begin
+		set @column = @part4
+	end
+	else
+	if @part1 is null and @part2 is null
+	begin
+		set @table = @part3
+		set @column = @part4
+	end
+	else
+	if @part1 is null
+	begin
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
+	else
+	begin
+		set @db = @part1
+		set @schema = @part2
+		set @table = @part3
+		set @column = @part4
+	end
+
+	set @db = mold.resolve_db(@db)
+	set @schema = mold.resolve_schema(@db, @schema);
+
+	insert into @result
+	(
+		[object_id],
+		[db],
+		[schema],
+		[table],
+		[column],
+		[quoted_table],
+		[quoted_column]
+	)
+	values
+	(
+		mold.object_id(@db, @schema, @table, N'U'),
+		@db,
+    	@schema,
+		@table,
+		@column,
+		mold.quote_name(@db, @schema, @table, null),
+		mold.quote_name(@db, @schema, @table, @column)
+	)
+
+	return
+end
+
+go
+
+
+-- ---------------------------------------------
+-- functions/parse_column_list.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.parse_column_list
+-- =============================================
+CREATE OR ALTER FUNCTION mold.parse_column_list
+(
+    @name nvarchar(2000)
+)
+RETURNS TABLE
+AS
+RETURN
+    WITH
+        parsed AS
+        (
+            SELECT
+                ends_with_rparen =
+                    CASE
+                        WHEN LEN(@name) >= 1 AND RIGHT(@name, 1) = N')' THEN 1
+                        ELSE 0
+                    END
+        ),
+        nums AS
+        (
+            SELECT TOP (LEN(@name))
+                n = ROW_NUMBER() OVER (ORDER BY (SELECT NULL))
+            FROM sys.all_objects a CROSS JOIN sys.all_objects b
+        ),
+        positions AS
+        (
+            SELECT
+                n = nums.n,
+                ch = SUBSTRING(@name, nums.n, 1)
+            FROM nums
+        ),
+        depth_calc AS
+        (
+            SELECT
+                n, ch,
+                depth = SUM(
+                    CASE
+                        WHEN ch = N']' THEN 1
+                        WHEN ch = N'[' THEN -1
+                        ELSE 0
+                    END
+                ) OVER (ORDER BY n ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+            FROM positions
+        ),
+        matching_open AS
+        (
+            SELECT TOP (1) n AS open_pos
+            FROM depth_calc
+            WHERE ch = N'('
+                AND ISNULL(depth, 0) = 0
+                AND (SELECT ends_with_rparen FROM parsed) = 1
+            ORDER BY n DESC
+        ),
+        parts AS
+        (
+            SELECT
+                table_part =
+                    CASE
+                        WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
+                            mold.trim_right(
+                                LEFT(@name, (SELECT open_pos FROM matching_open) - 1),
+                                N'.', 0)
+                        ELSE @name
+                    END,
+                column_part =
+                    CASE
+                        WHEN (SELECT open_pos FROM matching_open) IS NOT NULL THEN
+                            SUBSTRING(@name,
+                                (SELECT open_pos FROM matching_open) + 1,
+                                LEN(@name) - (SELECT open_pos FROM matching_open) - 1)
+                        ELSE NULL
+                    END
+            FROM parsed
+        ),
+        tbl AS
+        (
+            SELECT
+                pt.[object_id],
+                pt.[db],
+                pt.[schema],
+                pt.[table],
+                pp.column_part
+            FROM parts pp
+            CROSS APPLY mold.parse_table_name(pp.table_part) pt
+        )
+    -- Branch 1: multi-column form.
+    SELECT
+        [object_id] = t.object_id,
+        [db]        = t.[db],
+        [schema]    = t.[schema],
+        [table]     = t.[table],
+        [column]    = LTRIM(RTRIM(j.[value])),
+        [ord]       = j.[key] + 1
+    FROM tbl t
+    CROSS APPLY OPENJSON(
+        N'[' + ISNULL(
+            N'"' + REPLACE(REPLACE(t.column_part, N'"', N'""'), N',', N'","') + N'"',
+            N'null'
+        ) + N']'
+    ) j
+    WHERE t.column_part IS NOT NULL
+
+    UNION ALL
+
+    -- Branch 2: single-column form.
+    SELECT
+        [object_id] = pc.[object_id],
+        [db]        = pc.[db],
+        [schema]    = pc.[schema],
+        [table]     = pc.[table],
+        [column]    = pc.[column],
+        [ord]       = 1
+    FROM mold.parse_column_name(@name) pc
+    WHERE NOT EXISTS (SELECT 1 FROM parts WHERE column_part IS NOT NULL)
+        AND pc.[column] IS NOT NULL;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/default_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.default_exists
+-- =============================================
+-- Returns 1 if the column has a default constraint (optionally matching
+-- a specific value), 0 otherwise.
+--
+-- Accepts a column reference in these forms:
+--   'Products.IsShipped'                -> dbo.Products.IsShipped
+--   'sales.Products.IsShipped'          -> sales.Products.IsShipped
+--   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
+--   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
+--
+-- If @expected_value is NULL, only the presence of the default is checked.
+-- If @expected_value is provided, the default definition is normalized
+-- (via _normalize_default) and compared to the normalized expected value.
+-- =============================================
+CREATE OR ALTER FUNCTION mold.default_exists
+(
+    @name           mold.object_name,
+    @expected_value nvarchar(max) = NULL
+)
+RETURNS bit
+AS
+BEGIN
+    DECLARE @existing_default nvarchar(max)
+
+    SET @existing_default = mold.column_default(@name)
+
+    IF @existing_default IS NULL
+        RETURN 0;
+
+    -- Presence-only check.
+    IF @expected_value IS NULL
+        RETURN 1;
+
+    -- Value check.
+    DECLARE @actual_norm   nvarchar(max) = mold._normalize_default(@existing_default);
+    DECLARE @expected_norm nvarchar(max) = mold._normalize_default(@expected_value);
+
+    RETURN CASE WHEN @actual_norm = @expected_norm THEN 1 ELSE 0 END;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/foreign_key_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.foreign_key_exists
+-- =============================================
+CREATE OR ALTER FUNCTION mold.foreign_key_exists
+(
+    @fk_column nvarchar(2000),
+    @pk_column nvarchar(2000)
+)
+RETURNS bit
+AS
+BEGIN
+    IF      mold.is_empty(@fk_column) = 1
+        OR  mold.is_empty(@pk_column) = 1
+        RETURN 0;
+
+    DECLARE @fk TABLE
+    (
+        [object_id] int,
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        [ord]       int
+    );
+
+    DECLARE @pk TABLE
+    (
+        [object_id] int,
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        [ord]       int
+    );
+
+    INSERT INTO @fk ([object_id], [db], [schema], [table], [column], ord)
+    SELECT [object_id], [db], [schema], [table], [column], [ord]
+    FROM mold.parse_column_list(@fk_column);
+
+    INSERT INTO @pk ([object_id], [db], [schema], [table], [column], ord)
+    SELECT [object_id], [db], [schema], [table], [column], [ord]
+    FROM mold.parse_column_list(@pk_column);
+
+    IF NOT EXISTS (SELECT 1 FROM @fk) OR NOT EXISTS (SELECT 1 FROM @pk)
+        RETURN 0;
+
+    DECLARE @fk_count int = (SELECT COUNT(*) FROM @fk);
+    DECLARE @pk_count int = (SELECT COUNT(*) FROM @pk);
+
+    IF @fk_count <> @pk_count
+        RETURN 0;
+
+    DECLARE @fk_table_id int, @fk_db sysname, @fk_schema sysname, @fk_table sysname;
+    DECLARE @pk_table_id int, @pk_db sysname, @pk_schema sysname, @pk_table sysname;
+
+    SELECT TOP (1)
+        @fk_table_id = [object_id], @fk_db = [db], @fk_schema = [schema], @fk_table = [table]
+    FROM @fk;
+
+    SELECT TOP (1)
+        @pk_table_id = [object_id], @pk_db = [db], @pk_schema = [schema], @pk_table = [table]
+    FROM @pk;
+
+    DECLARE @current_db sysname = DB_NAME()
+
+    IF @fk_db <> @current_db or @pk_db <> @current_db
+        RETURN 0;
+
+    IF @fk_table_id IS NULL OR @pk_table_id IS NULL
+        RETURN 0;
+
+    RETURN CASE
+        WHEN EXISTS 
+        (
+            SELECT 1
+            FROM            sys.foreign_key_columns fkc
+                INNER JOIN  sys.foreign_keys        fk      ON fk.object_id     = fkc.constraint_object_id
+                INNER JOIN  sys.columns             fk_col  ON fk_col.object_id = fkc.parent_object_id      AND fk_col.column_id = fkc.parent_column_id
+                INNER JOIN  sys.columns             pk_col  ON pk_col.object_id = fkc.referenced_object_id  AND pk_col.column_id = fkc.referenced_column_id
+                INNER JOIN  @fk                     f       ON f.ord            = fkc.constraint_column_id  AND f.[column] = fk_col.name
+                INNER JOIN  @pk                     p       ON p.ord            = fkc.constraint_column_id  AND p.[column] = pk_col.name
+            WHERE fkc.parent_object_id = @fk_table_id AND fkc.referenced_object_id = @pk_table_id
+            GROUP BY fk.object_id
+            HAVING COUNT(*) = @fk_count
+        ) THEN 1
+        ELSE 0
+    END;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/primary_key_exists.sql
+-- ---------------------------------------------
+/*
+    Function: primary_key_exists
+
+    Description:
+        Determines whether the specified table has a primary key whose
+        complete column list matches the supplied columns in the same order.
+
+    Input:
+        @name - A table-and-column specification accepted by parse_column_list.
+                Examples:
+                    N'dbo.Users.Id'
+                    N'dbo.UserRoles(UserId,RoleId)'
+
+    Returns:
+        bit
+            1 - The table's primary key contains exactly the supplied columns,
+                in the supplied order.
+            0 - The table does not exist, has no primary key, the supplied
+                columns do not exactly match its primary key, the input is
+                invalid, or the specification refers to another database.
+
+    Notes:
+        - Uses parse_column_list to parse the input.
+        - Checks metadata in the current database only. A scalar UDF cannot
+          use dynamic SQL to inspect an arbitrary database.
+        - Composite-key column order is significant.
+        - A partial or superset column list is not considered a match.
+*/
+
+CREATE OR ALTER FUNCTION mold.primary_key_exists
+(
+    @name nvarchar(1000)
+)
+RETURNS bit
+AS
+BEGIN
+    IF mold.is_empty(@name) = 1
+        RETURN 0;
+
+    DECLARE
+        @db             sysname,
+        @schema         sysname,
+        @table          sysname,
+        @object_id      int,
+        @column_count   int;
+
+    DECLARE @columns TABLE
+    (
+        [object_id] int,
+        [db]        sysname,
+        [schema]    sysname,
+        [table]     sysname,
+        [column]    sysname,
+        [ord]       int
+    );
+
+    INSERT INTO @columns
+    (
+        [object_id],
+        [db],
+        [schema],
+        [table],
+        [column],
+        [ord]
+    )
+    SELECT
+        [object_id],
+        [db],
+        [schema],
+        [table],
+        [column],
+        [ord]
+    FROM mold.parse_column_list(@name);
+
+    SELECT TOP (1)
+        @object_id  = [object_id],
+        @db         = [db],
+        @schema     = [schema],
+        @table      = [table]
+    FROM @columns;
+
+    SELECT @column_count = COUNT(*) FROM @columns;
+
+    -- A valid specification must identify a database, schema, table,
+    -- and at least one column.
+    IF @column_count = 0 OR @db IS NULL OR @schema IS NULL OR @table IS NULL
+        RETURN 0;
+
+    -- Scalar UDFs cannot use dynamic SQL to inspect another database.
+    IF @db <> DB_NAME()
+        RETURN 0;
+
+    IF @object_id IS NULL
+        RETURN 0;
+
+    /*
+        Match a primary-key constraint only when:
+          1. Its number of key columns equals the requested column count.
+          2. Every requested column matches the key column at the same
+             ordinal position.
+
+        The second condition uses a double NOT EXISTS so that every
+        requested column must have a corresponding key column.
+    */
+    IF EXISTS
+    (
+        SELECT 1
+        FROM sys.key_constraints kc
+        WHERE kc.parent_object_id = @object_id
+          AND kc.type = N'PK'
+          AND
+          (
+              SELECT COUNT(*)
+              FROM sys.index_columns ic
+              WHERE ic.object_id = kc.parent_object_id
+                AND ic.index_id = kc.unique_index_id
+                AND ic.key_ordinal > 0
+          ) = @column_count
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM @columns requested
+              WHERE NOT EXISTS
+              (
+                  SELECT 1
+                  FROM sys.index_columns ic
+                  INNER JOIN sys.columns c
+                      ON c.object_id = ic.object_id
+                     AND c.column_id = ic.column_id
+                  WHERE ic.object_id = kc.parent_object_id
+                    AND ic.index_id = kc.unique_index_id
+                    AND ic.key_ordinal = requested.[ord]
+                    AND c.name = requested.[column]
+              )
+          )
+    )
+        RETURN 1;
+
+    RETURN 0;
+END
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/column_default.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.column_default
+-- =============================================
+-- Returns the default-constraint definition for a column, or NULL if
+-- the column has no default constraint (or the table/column does not
+-- exist).
+--
+-- The returned value is the raw definition from sys.default_constraints
+-- (e.g. '((0))', '(getdate())', 'N''hello'''). Use default_exists if you
+-- want to compare against an expected value; that function normalizes
+-- both sides via _normalize_default.
+--
+-- Input formats:
+--   'Products.IsShipped'                -> dbo.Products.IsShipped
+--   'sales.Products.IsShipped'          -> sales.Products.IsShipped
+--   'db.sales.Products.IsShipped'       -> db.sales.Products.IsShipped
+--   '[sales].[My.Table].[IsShipped]'    -> sales.[My.Table].[IsShipped]
+-- =============================================
+CREATE OR ALTER FUNCTION mold.column_default
+(
+    @column mold.object_name
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    DECLARE @object_id  int
+    DECLARE @default_value nvarchar(max)
+
+    SELECT
+        @object_id = [object_id],
+        @default_value = [default_value],
+    FROM mold.parse_column_name(@column);
+
+    IF @object_id IS NULL
+        RETURN NULL;
+
+    RETURN @default_value;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/column_info.sql
+-- ---------------------------------------------
+drop function if exists mold.column_info;
+go
+-- =============================================
+-- mold.column_info
+-- =============================================
+-- Returns one row per column with detailed information,
+-- or an empty result set if the specified column or table does not exist.
+--
+-- Input formats:
+--   'Table.Column'                  -> dbo.Table.Column
+--   'Schema.Table.Column'           -> Schema.Table.Column
+--   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
+--   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
+--
+-- Notes:
+--   - max_length is the raw sys.columns value, in bytes; -1 means (max).
+--   - length is the character count for nchar/nvarchar, the byte count
+--     for char/varchar/binary/varbinary, and -1 for (max). It is
+--     determined from system_type_id so UDTs based on those types are
+--     handled correctly.
+--   - is_xml is 1 for the xml system type; is_xml_document is the
+--     separate flag from sys.columns that constrains the xml to document
+--     form.
+--   - default_value is normalized via _normalize_default; default_name
+--     is the raw constraint name.
+--   - parent_column contains the comma-separated list of distinct,
+--     fully qualified referenced columns when this column participates
+--     in one or more outgoing foreign keys; NULL otherwise.
+--     For composite FKs, each child column maps to its corresponding
+--     referenced column.
+--   - parent_column is populated only for the child (referencing) side
+--     of an FK. To find columns referencing this column, query
+--     column_foreign_keys() or sys.foreign_key_columns.
+--   - is_primary_key is 1 when the column is part of the primary key.
+--   - primary_key_constraint is the name of the primary key constraint
+--     when the column participates in the PK, NULL otherwise.
+--   - is_primary_key is 1 when the column is part of the primary key.
+--   - parent_column is NULL for the parent (referenced) side of an FK;
+--     to find "who references me", query sys.foreign_key_columns with
+--     referenced_object_id / referenced_column_id instead.
+--   - primary_key_constraint is the name of the primary key constraint
+--     when the column participates in the PK, NULL otherwise.
+--   - parent_column and foreign_key_constraint are both NULL for the
+--     referenced (parent) side of an FK; the join reports the child side.
+--   - Returned table
+-- @result table
+-- (
+--     [db]                      sysname,
+--     [schema_name]             sysname,
+--     [table_name]              sysname,
+--     [column_name]             sysname,
+--     [column_id]               int,
+--     [type_name]               sysname,
+--     [type_schema_id]          int,
+--     [type_schema_name]        sysname,
+--     [user_type_id]            int,
+--     [system_type_id]          int,
+--     [max_length]              int,
+--     [length]                  int,
+--     [precision]               int,
+--     [scale]                   int,
+--     [collation_name]          sysname,
+--     [is_nullable]             bit,
+--     [is_identity]             bit,
+--     [is_computed]             bit,
+--     [is_persisted]            bit,
+--     [is_sparse]               bit,
+--     [is_filestream]           bit,
+--     [is_xml]                  bit,
+--     [is_xml_document]         bit,
+--     [is_rowguidcol]           bit,
+--     [default_value]           nvarchar(max),
+--     [default_name]            sysname,
+--     [computed_definition]     nvarchar(max),
+--     [column_description]      nvarchar(max),
+--     [parent_column]           nvarchar(max),   -- fully qualified parent column(s) when column participates in an FK, else NULL
+--     [is_primary_key]          bit,              -- 1 when the column participates in the PK, else 0
+--     [primary_key_constraint]  sysname,   -- name of the PK constraint, NULL if not in the PK
+-- )
+-- =============================================
+create function mold.column_info
+(
+    @column mold.object_name
+)
+returns table
+as
+return
+(
+    with parsed as
+    (
+        select
+            [object_id], [db], [schema], [table], [column]
+        from mold.parse_column_name(@column)
+        where [column] is not null
+        union all
+        select
+            [object_id], [db], [schema], [table], [column]
+        from mold.parse_table_name(@column)
+        where [column] is null
+    )
+    select
+        [db]                      = p.[db],
+        [schema_name]             = p.[schema],
+        [table_name]              = p.[table],
+        [column_name]             = c.name,
+        [column_id]               = c.column_id,
+        [type_name]               = t.name,
+        [type_schema_id]          = t.schema_id,
+        [type_schema_name]        = schema_name(t.schema_id),
+        [user_type_id]            = c.user_type_id,
+        [system_type_id]          = c.system_type_id,
+        [max_length]              = c.max_length,
+        [length]                  = mold._string_length(c.system_type_id, c.max_length),
+        [precision]               = c.[precision],
+        [scale]                   = c.scale,
+        [collation_name]          = c.collation_name,
+        [is_nullable]             = c.is_nullable,
+        [is_identity]             = c.is_identity,
+        [is_computed]             = c.is_computed,
+        [is_persisted]            = isnull(cc.is_persisted, 0),
+        [is_sparse]               = c.is_sparse,
+        [is_filestream]           = c.is_filestream,
+        [is_xml]                  = case when c.system_type_id = 241 then 1 else 0 end,
+        [is_xml_document]         = c.is_xml_document,
+        [is_rowguidcol]           = c.is_rowguidcol,
+        [default_value]           = mold._normalize_default(dc.definition),
+        [default_name]            = dc.name,
+        [computed_definition]     = cc.definition,
+        [column_description]      = cast(ep.value as nvarchar(max)),
+        [parent_column]           = fk.parent_column,
+        [is_primary_key]          = case when pk.column_id is not null then 1 else 0 end,
+        [primary_key_constraint]  = pk.pk_name
+    from            parsed                  p
+        inner join  sys.columns             c    on  c.object_id = p.object_id
+                                                        and (c.name = p.[column] or p.[column] is null)
+        inner join  sys.types               t    on  t.user_type_id = c.user_type_id
+        left  join  sys.default_constraints dc   on  dc.parent_object_id = c.object_id
+                                                        and dc.parent_column_id = c.column_id
+        left  join  sys.computed_columns    cc   on  cc.object_id = c.object_id
+                                                        and cc.column_id = c.column_id
+        left  join  sys.extended_properties ep   on  ep.major_id = c.object_id
+                                                        and ep.minor_id = c.column_id
+                                                        and ep.name = N'MS_Description'
+                                                        and ep.class = 1
+        left  join
+        (
+            select
+                ic.object_id, ic.column_id, i.name as pk_name
+            from            sys.index_columns ic
+                inner join  sys.indexes       i on i.object_id = ic.object_id and i.index_id = ic.index_id
+            where i.is_primary_key = 1
+        ) pk on  pk.object_id = c.object_id and pk.column_id = c.column_id
+        outer apply
+        (
+            select
+                parent_column = stuff
+                (
+                    (
+                        select
+                            n', ' + pc.parent_column
+                        from
+                        (
+                            select distinct
+                                parent_column =
+                                    quotename(object_schema_name(fkc.referenced_object_id))
+                                    + n'.' + quotename(object_name(fkc.referenced_object_id))
+                                    + n'.' + quotename(rc.name)
+                            from            sys.foreign_key_columns fkc
+                                inner join  sys.columns             rc
+                                    on  rc.object_id = fkc.referenced_object_id
+                                            and rc.column_id = fkc.referenced_column_id
+                            where fkc.parent_object_id = c.object_id
+                                and fkc.parent_column_id = c.column_id
+                        ) as pc
+                        order by pc.parent_column
+                        for xml path(''), type
+                    ).value('.', 'nvarchar(max)'),
+                    1,
+                    2,
+                    n''
+                )
+        ) as fk
+    where p.object_id is not null and p.[db] = DB_NAME()
+)
+go
+
+
+-- ---------------------------------------------
+-- functions/column_foreign_keys.sql
+-- ---------------------------------------------
+
+create or alter function mold.column_foreign_keys
+(
+    @column mold.object_name,
+    @dir varchar(8)
+)
+returns table
+as
+return
+(
+    with parsed as
+    (
+        select
+            [object_id], [db], [schema], [table], [column]
+        from mold.parse_column_name(@column)
+        where [column] is not null
+
+        union all
+
+        select
+            [object_id], [db], [schema], [table], [column]
+        from mold.parse_table_name(@column)
+        where [column] is null
+    ),
+    target_columns as
+    (
+        select
+            c.object_id,
+            c.column_id
+        from            parsed      p
+            inner join  sys.columns c   on  c.object_id = p.object_id
+                                            and (c.name = p.[column] or p.[column] is null)
+        where p.object_id is not null
+            and p.[db] = db_name()
+    )
+    select
+        direction               = cast('outgoing' as varchar(8)),
+        constraint_name         = fk.name,
+
+        child_schema            = object_schema_name(fk.parent_object_id),
+        child_table             = object_name(fk.parent_object_id),
+        child_column            = pc.name,
+
+        parent_schema           = object_schema_name(fk.referenced_object_id),
+        parent_table            = object_name(fk.referenced_object_id),
+        parent_column           = rc.name,
+
+        constraint_column_id    = fkc.constraint_column_id,
+        is_disabled             = fk.is_disabled,
+        is_not_trusted          = fk.is_not_trusted,
+        delete_rule             = fk.delete_referential_action_desc,
+        update_rule             = fk.update_referential_action_desc
+    from            target_columns          tc
+        inner join  sys.foreign_key_columns fkc on  fkc.parent_object_id = tc.object_id
+                                                    and fkc.parent_column_id = tc.column_id
+        inner join  sys.foreign_keys        fk  on  fk.object_id = fkc.constraint_object_id
+        inner join  sys.columns             pc  on  pc.object_id = fkc.parent_object_id
+                                                    and pc.column_id = fkc.parent_column_id
+        inner join  sys.columns             rc  on  rc.object_id = fkc.referenced_object_id
+                                                    and rc.column_id = fkc.referenced_column_id
+    where @dir is null or @dir = '' or @dir in ('out', 'outgoing')
+
+    union all
+
+    select
+        direction               = cast('incoming' as varchar(8)),
+        constraint_name         = fk.name,
+
+        child_schema            = object_schema_name(fk.parent_object_id),
+        child_table             = object_name(fk.parent_object_id),
+        child_column            = pc.name,
+
+        parent_schema           = object_schema_name(fk.referenced_object_id),
+        parent_table            = object_name(fk.referenced_object_id),
+        parent_column           = rc.name,
+
+        constraint_column_id    = fkc.constraint_column_id,
+        is_disabled             = fk.is_disabled,
+        is_not_trusted          = fk.is_not_trusted,
+        delete_rule             = fk.delete_referential_action_desc,
+        update_rule             = fk.update_referential_action_desc
+    from            target_columns          tc
+        inner join  sys.foreign_key_columns fkc on  fkc.referenced_object_id = tc.object_id
+                                                    and fkc.referenced_column_id = tc.column_id
+        inner join  sys.foreign_keys        fk  on  fk.object_id = fkc.constraint_object_id
+        inner join  sys.columns             pc  on  pc.object_id = fkc.parent_object_id
+                                                    and pc.column_id = fkc.parent_column_id
+        inner join  sys.columns             rc  on  rc.object_id = fkc.referenced_object_id
+                                                    and rc.column_id = fkc.referenced_column_id
+    where @dir is null or @dir = '' or @dir in ('in', 'incoming')
+);
+go
+
+
+-- ---------------------------------------------
+-- functions/column_api.sql
+-- ---------------------------------------------
+-- =============================================
+-- Column property functions (scalar)
+-- =============================================
+-- These are thin wrappers over mold.column_info to make it easy
+-- to check a single property of a column.
+--
+-- All take a single argument: a column reference
+--   ('Table.Column', 'Schema.Table.Column', 'Db.Schema.Table.Column', ...).
+--
+-- If the column does not exist, they return NULL (for most) or 0 (for
+-- boolean checks).
+-- =============================================
+
+
+-- ---------------------------------------------
+-- Boolean checks (return bit)
+-- ---------------------------------------------
+
+CREATE OR ALTER FUNCTION mold.is_nullable(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_nullable FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_identity(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_identity FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_sparse(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_sparse FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_computed(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_computed FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_filestream(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_filestream FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_xml(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_xml FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_rowguidcol(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_rowguidcol FROM mold.column_info(@column));
+END;
+GO
+
+
+-- ---------------------------------------------
+-- String / scalar properties
+-- ---------------------------------------------
+
+CREATE OR ALTER FUNCTION mold.column_typename(@column mold.object_name)
+RETURNS sysname
+AS
+BEGIN
+    RETURN (select type_name FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_collation(@column mold.object_name)
+RETURNS sysname
+AS
+BEGIN
+    RETURN (select collation_name FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_desc(@column mold.object_name)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN (select column_description FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_scale(@column mold.object_name)
+RETURNS tinyint
+AS
+BEGIN
+    RETURN (select scale FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_precision(@column mold.object_name)
+RETURNS tinyint
+AS
+BEGIN
+    RETURN (select [precision] FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_formula(@column mold.object_name)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN (select computed_definition FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_primary_key(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN (select is_primary_key FROM mold.column_info(@column));
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.is_foreign_key(@column mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN (SELECT parent_column FROM mold.column_info(@column)) IS NULL THEN 0 ELSE 1 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.column_parent(@column mold.object_name)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN (SELECT parent_column FROM mold.column_info(@column));
+END;
+GO
+
+-- =============================================
+-- mold.column_fk_name
+-- =============================================
+-- Returns the name of the foreign key constraint on a column, or NULL
+-- when the column is not the child side of any FK.
+--
+-- If the column participates in more than one FK, the alphabetically
+-- first constraint name is returned, so the function is deterministic.
+-- Use column_info when you need every constraint name.
+-- =============================================
+create or alter function mold.column_fk_name(@column mold.object_name)
+returns nvarchar(max)
+as
+begin
+    return
+    (
+        select STRING_AGG(constraint_name, ',')
+        from mold.column_foreign_keys(@column, 'out')
+    );
+end;
+go
+
+-- =============================================
+-- mold.column_pk_name
+-- =============================================
+-- Returns the name of the primary key constraint on a column, or NULL
+-- when the column is not part of the primary key.
+-- =============================================
+create or alter function mold.column_pk_name(@column mold.object_name)
+returns sysname
+as
+begin
+    return (
+        select primary_key_constraint
+        from mold.column_info(@column)
+    );
+end;
+go
+
+-- ---------------------------------------------
+-- column_length: mirrors COL_LENGTH (bytes).
+-- Returns NULL if the column does not exist.
+CREATE OR ALTER FUNCTION mold.column_max_length(@column mold.object_name)
+RETURNS int
+AS
+BEGIN
+    RETURN (select max_length FROM mold.column_info(@column));
+END;
+GO
+
+-- ---------------------------------------------
+-- column_length: logical length for string columns.
+--   varchar  -> max_length
+--   nvarchar -> max_length / 2
+--   text, ntext -> -1
+--   other    -> 0
+-- Returns NULL if the column does not exist.
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold.column_length
+(
+    @column mold.object_name
+)
+RETURNS int
+AS
+BEGIN
+    RETURN (select [length] FROM mold.column_info(@column));
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/column_type.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.column_type
+-- =============================================
+-- Returns a single row with type information for a column,
+-- or an empty result set if the column does not exist.
+--
+-- Columns returned:
+--   type_name, user_type_id, system_type_id
+-- =============================================
+CREATE OR ALTER FUNCTION mold.column_type
+(
+    @column mold.object_name
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        type_name,
+        user_type_id,
+        system_type_id
+    FROM mold.column_info(@column)
+);
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/column_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.column_exists
+-- =============================================
+-- Returns 1 if the specified column exists on a user table, 0 otherwise.
+--
+-- Input formats:
+--   'Table.Column'                  -> dbo.Table.Column
+--   'Schema.Table.Column'           -> Schema.Table.Column
+--   'Db.Schema.Table.Column'        -> Db.Schema.Table.Column
+--   '[sales].[My.Table].[My.Column]'-> sales.[My.Table].[My.Column]
+--
+-- Temp tables are NOT supported (UDF limitation).
+-- =============================================
+CREATE OR ALTER FUNCTION mold.column_exists
+(
+    @column mold.object_name
+)
+RETURNS bit
+AS
+BEGIN
+    DECLARE @object_id      int,
+            @column_id      int,
+            @db             sysname,
+            @table          sysname;
+
+    SELECT TOP(1)
+        @object_id      = p.[object_id],
+        @db             = p.[db],
+        @table          = p.[table],
+        @column_id      = p.[column_id]
+    FROM mold.parse_column_name(@column) p;
+
+    -- Current database only
+    IF @db <> DB_NAME()
+        RETURN 0;
+
+    -- Object and column must exist
+    IF @object_id IS NULL OR @column_id IS NULL
+        RETURN 0;
+
+    -- For temp tables, parse_column_name returns schema = NULL and
+    -- table = '#...'. Reject them (UDFs cannot access temp tables).
+    IF LEFT(@table, 1) = N'#'   -- we can't support temp tables in a UDF, so reject them
+        RETURN 0;
+
+    RETURN 1;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
 -- functions/column_dependencies.sql
 -- ---------------------------------------------
 -- =============================================
@@ -2714,7 +3126,7 @@ go
 -- =============================================
 CREATE OR ALTER FUNCTION mold.column_dependencies
 (
-    @column nvarchar(1000)
+    @column mold.object_name
 )
 RETURNS TABLE
 AS
@@ -2723,26 +3135,15 @@ RETURN
     WITH
     parsed AS
     (
-        SELECT [db], [schema], [table], [column]
-        FROM mold.parse_column_name(@column)
-    ),
-    resolved AS
-    (
         SELECT
-            object_id  = OBJECT_ID(
-                            QUOTENAME(ISNULL(p.[db], DB_NAME()))
-                          + N'.' + QUOTENAME(ISNULL(p.[schema], N'dbo'))
-                          + N'.' + QUOTENAME(p.[table])),
-            column_id  = COLUMNPROPERTY(
-                            OBJECT_ID(
-                                QUOTENAME(ISNULL(p.[db], DB_NAME()))
-                              + N'.' + QUOTENAME(ISNULL(p.[schema], N'dbo'))
-                              + N'.' + QUOTENAME(p.[table])),
-                            p.[column], 'ColumnId'),
-            schema_name = ISNULL(p.[schema], N'dbo'),
-            table_name  = p.[table],
-            column_name = p.[column]
-        FROM parsed AS p
+            [object_id],
+            [db],
+            [schema],
+            [table],
+            [column],
+            [column_id]
+        FROM mold.parse_column_name(@column)
+        WHERE [db] = DB_NAME() AND [column] IS NOT NULL
     ),
     -- Indexes and statistics that reference the column. PK/unique constraints
     -- are reported as 'index' because that is what blocks ALTER COLUMN.
@@ -2753,11 +3154,9 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(i.object_id))
                        + N'.' + QUOTENAME(i.name),
             type       = N'index'
-        FROM resolved AS r
-        JOIN sys.index_columns AS ic
-             ON ic.object_id = r.object_id AND ic.column_id = r.column_id
-        JOIN sys.indexes AS i
-             ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        FROM            parsed              p
+            INNER JOIN  sys.index_columns   ic   ON ic.object_id = p.object_id AND ic.column_id = p.column_id
+            INNER JOIN  sys.indexes         i    ON i.object_id = ic.object_id AND i.index_id = ic.index_id
         WHERE i.type <> 0                          -- skip heaps
           AND i.is_hypothetical = 0
     ),
@@ -2768,11 +3167,9 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(s.object_id))
                        + N'.' + QUOTENAME(s.name),
             type       = N'statistics'
-        FROM resolved AS r
-        JOIN sys.stats_columns AS sc
-             ON sc.object_id = r.object_id AND sc.column_id = r.column_id
-        JOIN sys.stats AS s
-             ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id
+        FROM            parsed              p
+            INNER JOIN  sys.stats_columns   sc   ON sc.object_id = p.object_id AND sc.column_id = p.column_id
+            INNER JOIN  sys.stats           s    ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id
         -- user-created stats only; auto-created stats are not a dependency
         -- the user can act on and should not block ALTER COLUMN
         WHERE s.auto_created = 0
@@ -2785,12 +3182,12 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(fk.object_id))
                        + N'.' + QUOTENAME(fk.name),
             type       = N'foreign key'
-        FROM resolved AS r
-        JOIN sys.foreign_key_columns AS fkc
-             ON (fkc.parent_object_id = r.object_id AND fkc.parent_column_id = r.column_id)
-             OR (fkc.referenced_object_id = r.object_id AND fkc.referenced_column_id = r.column_id)
-        JOIN sys.foreign_keys AS fk
-             ON fk.object_id = fkc.constraint_object_id
+        FROM            parsed              p
+            INNER JOIN  sys.foreign_key_columns fkc  ON
+                (fkc.parent_object_id = p.object_id AND fkc.parent_column_id = p.column_id)
+                OR
+                (fkc.referenced_object_id = p.object_id AND fkc.referenced_column_id = p.column_id)
+            INNER JOIN  sys.foreign_keys        fk   ON fk.object_id = fkc.constraint_object_id
     ),
     -- Computed columns in the same table that reference this column
     computed AS
@@ -2800,13 +3197,11 @@ RETURN
                        + N'.' + QUOTENAME(OBJECT_NAME(c.object_id))
                        + N'.' + QUOTENAME(c.name),
             type       = N'computed column'
-        FROM resolved AS r
-        JOIN sys.sql_expression_dependencies AS d
-             ON d.referenced_id = r.object_id
-            AND d.referenced_minor_id = r.column_id
-        JOIN sys.columns AS c
-             ON c.object_id = d.referencing_id
-            AND c.column_id = d.referencing_minor_id
+        FROM            parsed              p
+            INNER JOIN  sys.sql_expression_dependencies d
+                ON d.referenced_id = p.object_id AND d.referenced_minor_id = p.column_id
+            INNER JOIN  sys.columns                     c
+                ON c.object_id = d.referencing_id AND c.column_id = d.referencing_minor_id
         WHERE c.is_computed = 1
     ),
     -- Views and other modules (procs, functions, triggers) that reference
@@ -2818,20 +3213,19 @@ RETURN
             dependency = QUOTENAME(OBJECT_SCHEMA_NAME(d.referencing_id))
                        + N'.' + QUOTENAME(OBJECT_NAME(d.referencing_id)),
             type       = CASE o.type
-                             WHEN N'V' THEN N'view'
-                             WHEN N'P' THEN N'module'
+                             WHEN N'V'  THEN N'view'
+                             WHEN N'P'  THEN N'module'
                              WHEN N'FN' THEN N'module'
                              WHEN N'IF' THEN N'module'
                              WHEN N'TF' THEN N'module'
                              WHEN N'TR' THEN N'module'
                              ELSE N'module'
                          END
-        FROM resolved AS r
-        JOIN sys.sql_expression_dependencies AS d
-             ON d.referenced_id = r.object_id
-            AND d.referenced_minor_id = r.column_id
-        JOIN sys.objects AS o
-             ON o.object_id = d.referencing_id
+        FROM            parsed              p
+            INNER JOIN  sys.sql_expression_dependencies d
+                ON d.referenced_id = p.object_id AND d.referenced_minor_id = p.column_id
+            INNER JOIN  sys.objects                     o
+                ON o.object_id = d.referencing_id
         WHERE o.type IN (N'V', N'P', N'FN', N'IF', N'TF', N'TR')
     ),
     all_deps AS
@@ -2894,11 +3288,11 @@ go
 -- =============================================
 CREATE OR ALTER FUNCTION mold.column_type_change
 (
-    @from_type      nvarchar(128),
+    @from_type      sysname,
     @from_length    int,
     @from_precision int,
     @from_scale     int,
-    @to_type        nvarchar(128),
+    @to_type        sysname,
     @to_length      int,
     @to_precision   int,
     @to_scale       int
@@ -3186,6 +3580,73 @@ GO
 go
 
 -- ---------------------------------------------
+-- functions/table_exists.sql
+-- ---------------------------------------------
+-- =============================================
+-- mold.table_exists
+-- =============================================
+-- Returns 1 if the specified table exists, 0 otherwise.
+--
+-- Input formats:
+--   'Products'             -> dbo.Products
+--   'sales.Products'       -> sales.Products
+--   'db.sales.Products'    -> db.sales.Products
+--   '#tmp1'                -> tempdb..#tmp1
+--   '##tmp2'               -> tempdb..##tmp2
+--   '[sales].[My.Table]'   -> sales.[My.Table]
+--
+-- Unqualified names resolve to dbo (via parse_table_name).
+-- Only user tables (type 'U') are recognized.
+-- =============================================
+CREATE OR ALTER FUNCTION mold.table_exists
+(
+    @name mold.object_name
+)
+RETURNS bit
+AS
+BEGIN
+    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
+        RETURN 0;
+
+    DECLARE @normalized nvarchar(1000) = LTRIM(RTRIM(@name));
+
+    -- Temp tables: parse_table_name returns schema = NULL and table = '#...'.
+    -- Resolve them in tempdb explicitly.
+    IF LEFT(@normalized, 1) = N'#'
+    BEGIN
+        RETURN CASE
+            WHEN OBJECT_ID(N'tempdb..' + @normalized, N'U') IS NOT NULL THEN 1
+            ELSE 0
+        END;
+    END
+
+    -- Regular tables.
+    DECLARE @db sysname, @schema sysname, @table sysname;
+
+    SELECT
+        @db     = ISNULL(p.[db], DB_NAME()),
+        @schema = p.[schema],
+        @table  = p.[table]
+    FROM mold.parse_table_name(@normalized) p;
+
+    -- parse_table_name returns schema = NULL only for temp tables
+    -- (handled above). Any other NULL means an invalid input.
+    IF @schema IS NULL OR @table IS NULL
+        RETURN 0;
+
+    DECLARE @full_name nvarchar(1000) =
+        QUOTENAME(@db) + N'.' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+
+    RETURN CASE
+        WHEN OBJECT_ID(@full_name, N'U') IS NOT NULL THEN 1
+        ELSE 0
+    END;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
 -- functions/table_info.sql
 -- ---------------------------------------------
 -- =============================================
@@ -3217,7 +3678,7 @@ go
 
 CREATE OR ALTER FUNCTION mold.table_info
 (
-    @name nvarchar(1000)
+    @name mold.object_name
 )
 RETURNS TABLE
 AS
@@ -3226,6 +3687,207 @@ RETURN
     SELECT ci.*
     FROM mold.column_info(@name) AS ci
 );
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/table_api.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold.has_foreign_key(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_foreign_keys(@name, 'in')) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_primary_key(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_primary_key = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_identity(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_identity = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_filestream(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_filestream = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_xml(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_xml = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_computed_columns(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_computed = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_sparse_columns(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_sparse = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_persisted_columns(@name mold.object_name)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE is_persisted = 1) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.has_column_of_type(@name mold.object_name, @type sysname)
+RETURNS bit
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE type_name = @type) THEN 1 ELSE 0 END;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/record_exists.sql
+-- ---------------------------------------------
+create or alter proc mold.record_exists(@table sysname, @json nvarchar(max))
+as
+begin
+    set nocount on;
+
+    if mold.table_exists(@table) = 0
+    begin
+        raiserror('record_exists failed: table does not exist', 16, 1);
+        return;
+    end
+
+    declare @cnt int;
+
+    if @json is null or ltrim(rtrim(@json)) = N'' or ltrim(rtrim(@json)) = N'{}'
+    begin
+        declare @sql0 nvarchar(max) = N'select @cnt_out = count(*) from ' + @table;
+        exec sp_executesql @sql0, N'@cnt_out int output', @cnt output;
+    end
+    else
+    begin
+        declare @where nvarchar(max) = N'';
+        declare @key sysname, @val nvarchar(max);
+
+        declare cur cursor local fast_forward for
+            select [key], [value] from openjson(@json);
+
+        open cur;
+        fetch next from cur into @key, @val;
+        while @@fetch_status = 0
+        begin
+            if @where <> N'' set @where += N' and ';
+
+            if @val is null
+                set @where += quotename(@key) + N' is null';
+            else
+                set @where += quotename(@key) + N' = ' + quotename(@val, '''');
+
+            fetch next from cur into @key, @val;
+        end
+        close cur;
+        deallocate cur;
+
+        declare @sql nvarchar(max) =
+            N'select @cnt_out = count(*) from ' + @table + N' where ' + @where;
+        exec sp_executesql @sql, N'@cnt_out int output', @cnt output;
+    end
+
+    if @cnt = 0
+        raiserror('record_exists failed: no matching records found', 16, 1);
+end
+go
+
+
+-- ---------------------------------------------
+-- functions/string_length.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold._string_length
+(
+    @system_type_id int,
+    @max_length int
+)
+RETURNS int
+AS
+BEGIN
+    IF @system_type_id IS NULL
+        RETURN NULL;
+
+    DECLARE @size int = 0;
+
+    ;WITH string_type_families AS
+    (
+        SELECT
+            system_type_id,
+            CASE
+                WHEN name IN (N'varchar', N'char', N'varbinary', N'binary')
+                    THEN N'bytes'
+
+                WHEN name IN (N'nvarchar', N'nchar')
+                    THEN N'unicode'
+
+                WHEN name IN (N'text', N'ntext', N'xml', N'image')
+                    THEN N'max'
+            END AS size_family
+        FROM sys.types
+        WHERE user_type_id = system_type_id
+          AND is_user_defined = 0
+    )
+    SELECT @size =
+        CASE size_family
+            WHEN N'bytes'   THEN @max_length
+            WHEN N'unicode' THEN CASE WHEN @max_length = -1 THEN -1 ELSE @max_length / 2 END
+            WHEN N'max'     THEN -1
+            ELSE 0
+        END
+    FROM string_type_families
+    WHERE system_type_id = @system_type_id;
+
+    RETURN @size;
+END;
+GO
+
+CREATE OR ALTER FUNCTION mold.string_length
+(
+    @type sysname,
+    @max_length int
+)
+RETURNS int
+AS
+BEGIN
+    RETURN (
+        SELECT mold._string_length(bt.system_type_id, @max_length)
+        FROM            sys.types AS rt -- requested type
+            INNER JOIN  sys.types AS bt -- base type
+                ON bt.user_type_id = rt.system_type_id AND bt.user_type_id = bt.system_type_id
+        WHERE rt.user_type_id = TYPE_ID(@type)
+    )
+END;
 GO
 
 go

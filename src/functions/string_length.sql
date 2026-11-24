@@ -1,21 +1,3 @@
-CREATE OR ALTER FUNCTION $(SchemaName).string_length
-(
-    @type sysname,
-    @max_length int
-)
-RETURNS int
-AS
-BEGIN
-    RETURN (
-        SELECT $(SchemaName)._string_length(bt.system_type_id, @max_length)
-        FROM            sys.types AS rt -- requested type
-            INNER JOIN  sys.types AS bt -- base type
-                ON bt.user_type_id = rt.system_type_id AND bt.user_type_id = bt.system_type_id
-        WHERE rt.user_type_id = TYPE_ID(@type)
-    )
-END;
-GO
-
 CREATE OR ALTER FUNCTION $(SchemaName)._string_length
 (
     @system_type_id int,
@@ -58,5 +40,23 @@ BEGIN
     WHERE system_type_id = @system_type_id;
 
     RETURN @size;
+END;
+GO
+
+CREATE OR ALTER FUNCTION $(SchemaName).string_length
+(
+    @type sysname,
+    @max_length int
+)
+RETURNS int
+AS
+BEGIN
+    RETURN (
+        SELECT $(SchemaName)._string_length(bt.system_type_id, @max_length)
+        FROM            sys.types AS rt -- requested type
+            INNER JOIN  sys.types AS bt -- base type
+                ON bt.user_type_id = rt.system_type_id AND bt.user_type_id = bt.system_type_id
+        WHERE rt.user_type_id = TYPE_ID(@type)
+    )
 END;
 GO

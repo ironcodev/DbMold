@@ -49,8 +49,8 @@ RETURN
             SELECT TOP (1) n AS open_pos
             FROM depth_calc
             WHERE ch = N'('
-            AND ISNULL(depth, 0) = 0
-            AND (SELECT ends_with_rparen FROM parsed) = 1
+                AND ISNULL(depth, 0) = 0
+                AND (SELECT ends_with_rparen FROM parsed) = 1
             ORDER BY n DESC
         ),
         parts AS

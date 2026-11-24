@@ -1,32 +1,3 @@
-CREATE OR ALTER FUNCTION $(SchemaName).trim_whitespace
-(
-    @value nvarchar(max)
-)
-RETURNS nvarchar(max)
-AS
-BEGIN
-    RETURN $(SchemaName).ltrim_whitespace(
-        $(SchemaName).rtrim_whitespace(@value)
-    );
-END;
-GO
-
-CREATE OR ALTER FUNCTION $(SchemaName).rtrim_whitespace
-(
-    @value nvarchar(max)
-)
-RETURNS nvarchar(max)
-AS
-BEGIN
-    RETURN REVERSE(
-        $(SchemaName).ltrim_whitespace(
-            REVERSE(@value)
-        )
-    );
-END;
-GO
-
-
 CREATE OR ALTER FUNCTION $(SchemaName).ltrim_whitespace
 (
     @value nvarchar(max)
@@ -70,5 +41,33 @@ BEGIN
     END;
 
     RETURN @value;
+END;
+GO
+
+CREATE OR ALTER FUNCTION $(SchemaName).rtrim_whitespace
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN REVERSE(
+        $(SchemaName).ltrim_whitespace(
+            REVERSE(@value)
+        )
+    );
+END;
+GO
+
+CREATE OR ALTER FUNCTION $(SchemaName).trim_whitespace
+(
+    @value nvarchar(max)
+)
+RETURNS nvarchar(max)
+AS
+BEGIN
+    RETURN $(SchemaName).ltrim_whitespace(
+        $(SchemaName).rtrim_whitespace(@value)
+    );
 END;
 GO

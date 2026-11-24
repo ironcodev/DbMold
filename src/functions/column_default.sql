@@ -18,31 +18,22 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_default
 (
-    @name nvarchar(1000)
+    @column $(SchemaName).object_name
 )
 RETURNS nvarchar(max)
 AS
 BEGIN
-    IF @name IS NULL OR LTRIM(RTRIM(@name)) = ''
-        RETURN NULL;
-
     DECLARE @object_id  int
+    DECLARE @default_value nvarchar(max)
 
     SELECT
-        @object_id = [object_id]
-    FROM $(SchemaName).parse_column_name(@name);
+        @object_id = [object_id],
+        @default_value = [default_value],
+    FROM $(SchemaName).parse_column_name(@column);
 
     IF @object_id IS NULL
         RETURN NULL;
 
-    DECLARE @definition nvarchar(max);
-
-    SELECT
-        @definition = dc.definition
-    FROM            sys.default_constraints dc
-        INNER JOIN  sys.columns             c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id
-    WHERE dc.parent_object_id = @object_id AND c.name = @column;
-
-    RETURN @definition;
+    RETURN @default_value;
 END;
 GO

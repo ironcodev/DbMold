@@ -27,7 +27,7 @@
 
 CREATE OR ALTER FUNCTION $(SchemaName).table_info
 (
-    @name nvarchar(1000)
+    @name $(SchemaName).object_name
 )
 RETURNS TABLE
 AS

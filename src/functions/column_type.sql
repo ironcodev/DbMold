@@ -9,7 +9,7 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_type
 (
-    @name nvarchar(1000)
+    @column $(SchemaName).object_name
 )
 RETURNS TABLE
 AS
@@ -19,6 +19,6 @@ RETURN
         type_name,
         user_type_id,
         system_type_id
-    FROM $(SchemaName).column_info(@name)
+    FROM $(SchemaName).column_info(@column)
 );
 GO

@@ -33,11 +33,11 @@
 -- =============================================
 CREATE OR ALTER FUNCTION $(SchemaName).column_type_change
 (
-    @from_type      nvarchar(128),
+    @from_type      sysname,
     @from_length    int,
     @from_precision int,
     @from_scale     int,
-    @to_type        nvarchar(128),
+    @to_type        sysname,
     @to_length      int,
     @to_precision   int,
     @to_scale       int
