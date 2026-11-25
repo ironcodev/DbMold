@@ -448,14 +448,17 @@ BEGIN
     FROM @info;
 
     -- two FKs on the same column -> one row
-    EXEC Assert.Equals @count,            1;
+    EXEC Assert.Equals @count, 1;
 
     SELECT @parent_column = parent_column
     FROM @info;
 
+    DECLARE @comma_index INT
+
+    SET @comma_index = CHARINDEX(',', @parent_column);
     -- the single row has a sinlge parent_column
     -- containing both names of different parent columns
-    EXEC Assert.IsNull @parent_column, 0;
+    EXEC Assert.IsGT @comma_index, 0;
 
     -- both parent columns are present, in either order
     DECLARE @has_a bit =
