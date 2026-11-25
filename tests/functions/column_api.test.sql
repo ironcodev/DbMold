@@ -1,3 +1,8 @@
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- Tests for column property functions
 -- =============================================

@@ -1,3 +1,8 @@
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
 -- =============================================
 -- $(SchemaName).create_column
 -- =============================================
@@ -113,12 +118,6 @@
 --     "dryRun": true
 --   }';
 -- =============================================
-SET ANSI_NULLS ON;
-GO
-
-SET QUOTED_IDENTIFIER ON;
-GO
-
 CREATE OR ALTER PROCEDURE $(SchemaName).create_column
 (
     @spec nvarchar(max)

@@ -1,3 +1,8 @@
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- Tests for $(SchemaName).column_info
 -- =============================================
@@ -42,7 +47,8 @@ BEGIN
         @level1type = N'TABLE',  @level1name = N'__sstr_gci_tbl',
         @level2type = N'COLUMN', @level2name = N'Id';
 
-
+    IF OBJECT_ID('dbo.__sstr_gci_multi_fk', 'U') IS NOT NULL
+        DROP TABLE dbo.__sstr_gci_multi_fk;
     IF OBJECT_ID('dbo.__sstr_gci_parent_a', 'U') IS NOT NULL
         DROP TABLE dbo.__sstr_gci_parent_a;
     IF OBJECT_ID('dbo.__sstr_gci_parent_b', 'U') IS NOT NULL
@@ -58,14 +64,11 @@ BEGIN
         Id int NOT NULL CONSTRAINT PK_gci_parent_b PRIMARY KEY
     );
 
-    IF OBJECT_ID('dbo.__sstr_gci_multi_fk', 'U') IS NOT NULL
-        DROP TABLE dbo.__sstr_gci_multi_fk;
-
     CREATE TABLE dbo.__sstr_gci_multi_fk
     (
         RefId int NULL
             CONSTRAINT FK_gci_multi_fk_a FOREIGN KEY REFERENCES dbo.__sstr_gci_parent_a(Id),
-        CONSTRAINT FK_gci_multi_fk_b FOREIGN KEY (RefId) REFERENCES dbo.__sstr_gci_parent_b(Id)
+            CONSTRAINT FK_gci_multi_fk_b FOREIGN KEY (RefId) REFERENCES dbo.__sstr_gci_parent_b(Id)
     );
 END
 GO
@@ -407,74 +410,59 @@ BEGIN
 END
 GO
 
--- 19. FK column reports the FK constraint name.
-CREATE OR ALTER PROCEDURE sstr.column_info_fk_column_reports_constraint
-AS
-BEGIN
-    EXEC dbo.column_info_setup;
-
-    DECLARE @fk_name nvarchar(500);
-
-    SELECT @fk_name = foreign_key_constraint
-    FROM $(SchemaName).column_info(N'dbo.__sstr_gci_child.ParentId');
-
-    EXEC Assert.Equals @fk_name, N'FK_gci_child_tbl_id';
-
-    EXEC dbo.column_info_teardown;
-END
-GO
-
 -- 20. Non-PK, non-FK column: both constraint names are NULL.
 CREATE OR ALTER PROCEDURE sstr.column_info_plain_column_has_no_constraint_names
 AS
 BEGIN
     EXEC dbo.column_info_setup;
 
-    DECLARE @pk_name nvarchar(500), @fk_name nvarchar(500);
+    DECLARE @pk_name nvarchar(500), @parent_column nvarchar(500);
 
-    SELECT @pk_name = primary_key_constraint, @fk_name = foreign_key_constraint
+    SELECT @pk_name = primary_key_constraint, @parent_column = parent_column
     FROM $(SchemaName).column_info(N'dbo.__sstr_gci_tbl.Price');
 
     EXEC Assert.IsNull @pk_name;
-    EXEC Assert.IsNull @fk_name;
+    EXEC Assert.IsNull @parent_column;
 
     EXEC dbo.column_info_teardown;
 END
 GO
 
--- 21. A column in two FK constraints produces two rows in column_info.
-CREATE OR ALTER PROCEDURE sstr.column_info_multi_fk_column_returns_two_rows
+-- 21. A column in two FK constraints produces one row in column_info.
+CREATE OR ALTER PROCEDURE sstr.column_info_multi_fk_column_returns_one_row
 AS
 BEGIN
     EXEC dbo.column_info_setup;
 
-    DECLARE @count int, @distinct_parents int, @distinct_fks int;
-
+    DECLARE @count int, @parent_column nvarchar(max);
+    DECLARE @info table(
+        parent_column nvarchar(max)
+    );
+    INSERT INTO @info
     SELECT
-        @count             = COUNT(*),
-        @distinct_parents  = COUNT(DISTINCT parent_column),
-        @distinct_fks      = COUNT(DISTINCT foreign_key_constraint)
+        parent_column
     FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId');
 
-    -- two FKs on the same column -> two rows
-    EXEC Assert.Equals @count,            2;
-    -- each row names a different parent column
-    EXEC Assert.Equals @distinct_parents, 2;
-    -- each row names a different FK constraint
-    EXEC Assert.Equals @distinct_fks,     2;
+    SELECT
+        @count = COUNT(*)
+    FROM @info;
+
+    -- two FKs on the same column -> one row
+    EXEC Assert.Equals @count,            1;
+
+    SELECT @parent_column = parent_column
+    FROM @info;
+
+    -- the single row has a sinlge parent_column
+    -- containing both names of different parent columns
+    EXEC Assert.IsNull @parent_column, 0;
 
     -- both parent columns are present, in either order
-    DECLARE @has_a bit = CASE WHEN EXISTS (
-        SELECT 1 FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId')
-        WHERE parent_column = N'[dbo].[__sstr_gci_parent_a].[Id]'
-          AND foreign_key_constraint = N'FK_gci_multi_fk_a'
-    ) THEN 1 ELSE 0 END;
+    DECLARE @has_a bit =
+        CASE WHEN charindex('[dbo].[__sstr_gci_parent_a].[Id]', @parent_column) > 0 THEN 1 ELSE 0 END;
 
-    DECLARE @has_b bit = CASE WHEN EXISTS (
-        SELECT 1 FROM $(SchemaName).column_info(N'dbo.__sstr_gci_multi_fk.RefId')
-        WHERE parent_column = N'[dbo].[__sstr_gci_parent_b].[Id]'
-          AND foreign_key_constraint = N'FK_gci_multi_fk_b'
-    ) THEN 1 ELSE 0 END;
+    DECLARE @has_b bit =
+        CASE WHEN charindex('[dbo].[__sstr_gci_parent_b].[Id]', @parent_column) > 0 THEN 1 ELSE 0 END;
 
     EXEC Assert.Equals @has_a, 1;
     EXEC Assert.Equals @has_b, 1;

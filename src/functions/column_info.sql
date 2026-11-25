@@ -1,3 +1,9 @@
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
+
 drop function if exists $(SchemaName).column_info;
 go
 -- =============================================

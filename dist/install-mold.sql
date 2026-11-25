@@ -120,6 +120,11 @@ go
 -- ---------------------------------------------
 -- helpers/functions/base64_to_varbinary.sql
 -- ---------------------------------------------
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- mold.base64_to_varbinary
 -- =============================================
@@ -150,6 +155,11 @@ go
 -- ---------------------------------------------
 -- helpers/functions/base64_to_varbinary.sql
 -- ---------------------------------------------
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- mold.base64_to_varbinary
 -- =============================================
@@ -180,6 +190,11 @@ go
 -- ---------------------------------------------
 -- helpers/functions/hex_to_varbinary.sql
 -- ---------------------------------------------
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- mold.hex_to_varbinary
 -- =============================================
@@ -1241,6 +1256,11 @@ go
 -- ---------------------------------------------
 -- helpers/functions/varbinary_to_base64.sql
 -- ---------------------------------------------
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
 -- =============================================
 -- mold.varbinary_to_base64
 -- =============================================
@@ -1269,6 +1289,11 @@ go
 -- ---------------------------------------------
 -- helpers/functions/varbinary_to_hex.sql
 -- ---------------------------------------------
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
 -- =============================================
 -- mold.varbinary_to_hex
 -- =============================================
@@ -2571,6 +2596,12 @@ go
 -- ---------------------------------------------
 -- functions/column_info.sql
 -- ---------------------------------------------
+set ansi_nulls on
+go
+
+set quoted_identifier on
+go
+
 drop function if exists mold.column_info;
 go
 -- =============================================
@@ -4048,6 +4079,11 @@ go
 -- ---------------------------------------------
 -- procedures/create_column.sql
 -- ---------------------------------------------
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
 -- =============================================
 -- mold.create_column
 -- =============================================
@@ -4163,12 +4199,6 @@ go
 --     "dryRun": true
 --   }';
 -- =============================================
-SET ANSI_NULLS ON;
-GO
-
-SET QUOTED_IDENTIFIER ON;
-GO
-
 CREATE OR ALTER PROCEDURE mold.create_column
 (
     @spec nvarchar(max)
