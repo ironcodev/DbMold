@@ -8,6 +8,6 @@ create or alter function $(SchemaName).object_id
 returns int
 as
 begin
-	return object_id($(SchemaName).quoted_name(@db, @schema, @name), @type)
+	return object_id($(SchemaName).quote_name(@db, @schema, @name, null), @type)
 end
 go

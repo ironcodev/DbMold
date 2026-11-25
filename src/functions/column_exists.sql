@@ -26,9 +26,9 @@ BEGIN
     SELECT TOP(1)
         @object_id      = p.[object_id],
         @db             = p.[db],
-        @table          = p.[table],
+        @table          = p.[table_name],
         @column_id      = p.[column_id]
-    FROM $(SchemaName).parse_column_name(@column) p;
+    FROM $(SchemaName).column_info(@column) p;
 
     -- Current database only
     IF @db <> DB_NAME()

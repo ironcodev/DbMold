@@ -8,13 +8,13 @@ create or alter function $(SchemaName).string_compare
 returns smallint
 as
 begin
-    set @a = isnull(@a, n'');
-    set @b = isnull(@b, n'');
+    set @a = isnull(@a, N'');
+    set @b = isnull(@b, N'');
 
     if @trim = 1
     begin
-        set @a = $(SchemaName).trim_both(@a);
-        set @b = $(SchemaName).trim_both(@b);
+        set @a = $(SchemaName).trim_whitespace(@a);
+        set @b = $(SchemaName).trim_whitespace(@b);
     end
 
     if @ignoreCase = 1

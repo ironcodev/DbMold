@@ -38,6 +38,7 @@ helpers/functions/varbinary_to_hex.sql
 helpers/procedures/str_compare.sql
 
 functions/_normalize_default.sql
+functions/string_length.sql
 functions/default_schema.sql
 functions/resolve_db.sql
 functions/resolve_schema.sql
@@ -62,7 +63,6 @@ functions/table_exists.sql
 functions/table_info.sql
 functions/table_api.sql
 functions/record_exists.sql
-functions/string_length.sql
 
 procedures/create_default.sql
 procedures/create_column.sql

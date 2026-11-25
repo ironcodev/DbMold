@@ -43,24 +43,24 @@ begin
     end;
 
     -- Treat NULL as an empty string.
-    set @a = isnull(@a, n'');
-    set @b = isnull(@b, n'');
+    set @a = isnull(@a, N'');
+    set @b = isnull(@b, N'');
 
     declare @sql nvarchar(max);
 
     set @sql =
-        n'select @result =
+        N'select @result =
             case
-                when @a collate ' + quotename(@collation) + n'
-                   = @b collate ' + quotename(@collation) + n' then 0
-                when @a collate ' + quotename(@collation) + n'
-                   < @b collate ' + quotename(@collation) + n' then -1
+                when @a collate ' + quotename(@collation) + N'
+                   = @b collate ' + quotename(@collation) + N' then 0
+                when @a collate ' + quotename(@collation) + N'
+                   < @b collate ' + quotename(@collation) + N' then -1
                 else 1
             end;';
 
     exec sys.sp_executesql
         @sql,
-        n'@a nvarchar(max), @b nvarchar(max), @result int output',
+        N'@a nvarchar(max), @b nvarchar(max), @result int output',
         @a = @a,
         @b = @b,
         @result = @result output;

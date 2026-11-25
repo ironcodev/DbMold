@@ -45,6 +45,7 @@ go
 --   - Returned table
 -- @result table
 -- (
+--     [object_id]               int,
 --     [db]                      sysname,
 --     [schema_name]             sysname,
 --     [table_name]              sysname,
@@ -99,6 +100,7 @@ return
         where [column] is null
     )
     select
+        [object_id]               = p.[object_id],
         [db]                      = p.[db],
         [schema_name]             = p.[schema],
         [table_name]              = p.[table],
@@ -157,14 +159,14 @@ return
                 (
                     (
                         select
-                            n', ' + pc.parent_column
+                            N', ' + pc.parent_column
                         from
                         (
                             select distinct
                                 parent_column =
                                     quotename(object_schema_name(fkc.referenced_object_id))
-                                    + n'.' + quotename(object_name(fkc.referenced_object_id))
-                                    + n'.' + quotename(rc.name)
+                                    + N'.' + quotename(object_name(fkc.referenced_object_id))
+                                    + N'.' + quotename(rc.name)
                             from            sys.foreign_key_columns fkc
                                 inner join  sys.columns             rc
                                     on  rc.object_id = fkc.referenced_object_id
@@ -177,7 +179,7 @@ return
                     ).value('.', 'nvarchar(max)'),
                     1,
                     2,
-                    n''
+                    N''
                 )
         ) as fk
     where p.object_id is not null and p.[db] = DB_NAME()

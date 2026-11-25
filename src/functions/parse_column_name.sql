@@ -4,13 +4,13 @@ create or alter function $(SchemaName).parse_column_name
 )
 returns @result table 
 (
-	[object_id]		int,
-	[db] 			sysname,
-	[schema] 		sysname,
-	[table] 		sysname,
-	[column] 		sysname,
-	[quoted_table]	$(SchemaName).object_name,
-	[quoted_column]	$(SchemaName).object_name
+	[object_id]		int null,
+	[db] 			sysname null,
+	[schema] 		sysname null,
+	[table] 		sysname null,
+	[column] 		sysname null,
+	[quoted_table]	$(SchemaName).object_name null,
+	[quoted_column]	$(SchemaName).object_name null
 )
 as
 begin

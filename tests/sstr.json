@@ -12,7 +12,7 @@
     "parse_column_type": { "skip": true, "postScript": "./tests/functions/parse_column_type.postscript.sql" },
     "parse_table_name": { "skip": true },
     "table_exists": { "skip": true },
-    "_normalize_default": { "skip": true },
+    "_normalize_default": { "skip": false },
     "parse_column_list": { "skip": true, "postScript": "./tests/functions/parse_column_list.postscript.sql" },
     "column_dependencies": {
       "skip": true,

@@ -9,10 +9,11 @@
 create or alter function $(SchemaName).trim_both
 (
     @s     nvarchar(max),
-    @chars nvarchar(100)
+    @chars nvarchar(100),
+    @case_insensitive bit
 )
 returns nvarchar(max)
 as
 begin
-    return $(SchemaName).trim_left($(SchemaName).trim_right(@s, @chars), @chars);
+    return $(SchemaName).trim_left($(SchemaName).trim_right(@s, @chars, @case_insensitive), @chars, @case_insensitive);
 end

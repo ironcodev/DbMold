@@ -117,7 +117,7 @@ END
 GO
 
 -- 9. Quoted names
-CREATE OR ALTER PROCEDURE sstr.column_exists_should_handle_quoted_names
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_handle_quote_names
 AS
 BEGIN
     IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');

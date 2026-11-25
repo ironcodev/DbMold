@@ -38,12 +38,12 @@ RETURN
         SELECT
             [object_id],
             [db],
-            [schema],
-            [table],
-            [column],
+            [schema_name],
+            [table_name],
+            [column_name],
             [column_id]
-        FROM $(SchemaName).parse_column_name(@column)
-        WHERE [db] = DB_NAME() AND [column] IS NOT NULL
+        FROM $(SchemaName).column_info(@column)
+        WHERE [db] = DB_NAME() AND [column_name] IS NOT NULL
     ),
     -- Indexes and statistics that reference the column. PK/unique constraints
     -- are reported as 'index' because that is what blocks ALTER COLUMN.

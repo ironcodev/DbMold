@@ -494,12 +494,13 @@ go
 create or alter function m.trim_both
 (
     @s     nvarchar(max),
-    @chars nvarchar(100)
+    @chars nvarchar(100),
+    @case_insensitive bit
 )
 returns nvarchar(max)
 as
 begin
-    return m.trim_left(m.trim_right(@s, @chars), @chars);
+    return m.trim_left(m.trim_right(@s, @chars, @case_insensitive), @chars, @case_insensitive);
 end
 
 go
@@ -1163,13 +1164,13 @@ create or alter function m.string_compare
 returns smallint
 as
 begin
-    set @a = isnull(@a, n'');
-    set @b = isnull(@b, n'');
+    set @a = isnull(@a, N'');
+    set @b = isnull(@b, N'');
 
     if @trim = 1
     begin
-        set @a = m.trim_both(@a);
-        set @b = m.trim_both(@b);
+        set @a = m.trim_whitespace(@a);
+        set @b = m.trim_whitespace(@b);
     end
 
     if @ignoreCase = 1
@@ -1348,24 +1349,24 @@ begin
     end;
 
     -- Treat NULL as an empty string.
-    set @a = isnull(@a, n'');
-    set @b = isnull(@b, n'');
+    set @a = isnull(@a, N'');
+    set @b = isnull(@b, N'');
 
     declare @sql nvarchar(max);
 
     set @sql =
-        n'select @result =
+        N'select @result =
             case
-                when @a collate ' + quotename(@collation) + n'
-                   = @b collate ' + quotename(@collation) + n' then 0
-                when @a collate ' + quotename(@collation) + n'
-                   < @b collate ' + quotename(@collation) + n' then -1
+                when @a collate ' + quotename(@collation) + N'
+                   = @b collate ' + quotename(@collation) + N' then 0
+                when @a collate ' + quotename(@collation) + N'
+                   < @b collate ' + quotename(@collation) + N' then -1
                 else 1
             end;';
 
     exec sys.sp_executesql
         @sql,
-        n'@a nvarchar(max), @b nvarchar(max), @result int output',
+        N'@a nvarchar(max), @b nvarchar(max), @result int output',
         @a = @a,
         @b = @b,
         @result = @result output;
@@ -1414,6 +1415,74 @@ BEGIN
     END
 
     RETURN @v;
+END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/string_length.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION m._string_length
+(
+    @system_type_id int,
+    @max_length int
+)
+RETURNS int
+AS
+BEGIN
+    IF @system_type_id IS NULL
+        RETURN NULL;
+
+    DECLARE @size int = 0;
+
+    ;WITH string_type_families AS
+    (
+        SELECT
+            system_type_id,
+            CASE
+                WHEN name IN (N'varchar', N'char', N'varbinary', N'binary')
+                    THEN N'bytes'
+
+                WHEN name IN (N'nvarchar', N'nchar')
+                    THEN N'unicode'
+
+                WHEN name IN (N'text', N'ntext', N'xml', N'image')
+                    THEN N'max'
+            END AS size_family
+        FROM sys.types
+        WHERE user_type_id = system_type_id
+          AND is_user_defined = 0
+    )
+    SELECT @size =
+        CASE size_family
+            WHEN N'bytes'   THEN @max_length
+            WHEN N'unicode' THEN CASE WHEN @max_length = -1 THEN -1 ELSE @max_length / 2 END
+            WHEN N'max'     THEN -1
+            ELSE 0
+        END
+    FROM string_type_families
+    WHERE system_type_id = @system_type_id;
+
+    RETURN @size;
+END;
+GO
+
+CREATE OR ALTER FUNCTION m.string_length
+(
+    @type sysname,
+    @max_length int
+)
+RETURNS int
+AS
+BEGIN
+    RETURN (
+        SELECT m._string_length(bt.system_type_id, @max_length)
+        FROM            sys.types AS rt -- requested type
+            INNER JOIN  sys.types AS bt -- base type
+                ON bt.user_type_id = rt.system_type_id AND bt.user_type_id = bt.system_type_id
+        WHERE rt.user_type_id = TYPE_ID(@type)
+    )
 END;
 GO
 
@@ -1504,7 +1573,7 @@ create or alter function m.object_id
 returns int
 as
 begin
-	return object_id(m.quoted_name(@db, @schema, @name), @type)
+	return object_id(m.quote_name(@db, @schema, @name, null), @type)
 end
 go
 
@@ -1518,13 +1587,13 @@ create or alter function m.parse_table_name
 )
 returns @result table 
 (
-	[object_id]		int,
-	[db] 			sysname,
-	[schema] 		sysname,
-	[table] 		sysname,
-	[column] 		sysname,
-	[quoted_table]	m.object_name,
-	[quoted_column]	m.object_name
+	[object_id]		int null,
+	[db] 			sysname null,
+	[schema] 		sysname null,
+	[table] 		sysname null,
+	[column] 		sysname null,
+	[quoted_table]	m.object_name null,
+	[quoted_column]	m.object_name null
 )
 as
 begin
@@ -1956,13 +2025,13 @@ create or alter function m.parse_column_name
 )
 returns @result table 
 (
-	[object_id]		int,
-	[db] 			sysname,
-	[schema] 		sysname,
-	[table] 		sysname,
-	[column] 		sysname,
-	[quoted_table]	m.object_name,
-	[quoted_column]	m.object_name
+	[object_id]		int null,
+	[db] 			sysname null,
+	[schema] 		sysname null,
+	[table] 		sysname null,
+	[column] 		sysname null,
+	[quoted_table]	m.object_name null,
+	[quoted_column]	m.object_name null
 )
 as
 begin
@@ -2487,8 +2556,8 @@ BEGIN
 
     SELECT
         @object_id = [object_id],
-        @default_value = [default_value],
-    FROM m.parse_column_name(@column);
+        @default_value = [default_value]
+    FROM m.column_info(@column);
 
     IF @object_id IS NULL
         RETURN NULL;
@@ -2549,6 +2618,7 @@ go
 --   - Returned table
 -- @result table
 -- (
+--     [object_id]               int,
 --     [db]                      sysname,
 --     [schema_name]             sysname,
 --     [table_name]              sysname,
@@ -2603,6 +2673,7 @@ return
         where [column] is null
     )
     select
+        [object_id]               = p.[object_id],
         [db]                      = p.[db],
         [schema_name]             = p.[schema],
         [table_name]              = p.[table],
@@ -2661,14 +2732,14 @@ return
                 (
                     (
                         select
-                            n', ' + pc.parent_column
+                            N', ' + pc.parent_column
                         from
                         (
                             select distinct
                                 parent_column =
                                     quotename(object_schema_name(fkc.referenced_object_id))
-                                    + n'.' + quotename(object_name(fkc.referenced_object_id))
-                                    + n'.' + quotename(rc.name)
+                                    + N'.' + quotename(object_name(fkc.referenced_object_id))
+                                    + N'.' + quotename(rc.name)
                             from            sys.foreign_key_columns fkc
                                 inner join  sys.columns             rc
                                     on  rc.object_id = fkc.referenced_object_id
@@ -2681,7 +2752,7 @@ return
                     ).value('.', 'nvarchar(max)'),
                     1,
                     2,
-                    n''
+                    N''
                 )
         ) as fk
     where p.object_id is not null and p.[db] = DB_NAME()
@@ -3072,9 +3143,9 @@ BEGIN
     SELECT TOP(1)
         @object_id      = p.[object_id],
         @db             = p.[db],
-        @table          = p.[table],
+        @table          = p.[table_name],
         @column_id      = p.[column_id]
-    FROM m.parse_column_name(@column) p;
+    FROM m.column_info(@column) p;
 
     -- Current database only
     IF @db <> DB_NAME()
@@ -3138,12 +3209,12 @@ RETURN
         SELECT
             [object_id],
             [db],
-            [schema],
-            [table],
-            [column],
+            [schema_name],
+            [table_name],
+            [column_name],
             [column_id]
-        FROM m.parse_column_name(@column)
-        WHERE [db] = DB_NAME() AND [column] IS NOT NULL
+        FROM m.column_info(@column)
+        WHERE [db] = DB_NAME() AND [column_name] IS NOT NULL
     ),
     -- Indexes and statistics that reference the column. PK/unique constraints
     -- are reported as 'index' because that is what blocks ALTER COLUMN.
@@ -3823,74 +3894,6 @@ begin
 end
 go
 
-
--- ---------------------------------------------
--- functions/string_length.sql
--- ---------------------------------------------
-CREATE OR ALTER FUNCTION m._string_length
-(
-    @system_type_id int,
-    @max_length int
-)
-RETURNS int
-AS
-BEGIN
-    IF @system_type_id IS NULL
-        RETURN NULL;
-
-    DECLARE @size int = 0;
-
-    ;WITH string_type_families AS
-    (
-        SELECT
-            system_type_id,
-            CASE
-                WHEN name IN (N'varchar', N'char', N'varbinary', N'binary')
-                    THEN N'bytes'
-
-                WHEN name IN (N'nvarchar', N'nchar')
-                    THEN N'unicode'
-
-                WHEN name IN (N'text', N'ntext', N'xml', N'image')
-                    THEN N'max'
-            END AS size_family
-        FROM sys.types
-        WHERE user_type_id = system_type_id
-          AND is_user_defined = 0
-    )
-    SELECT @size =
-        CASE size_family
-            WHEN N'bytes'   THEN @max_length
-            WHEN N'unicode' THEN CASE WHEN @max_length = -1 THEN -1 ELSE @max_length / 2 END
-            WHEN N'max'     THEN -1
-            ELSE 0
-        END
-    FROM string_type_families
-    WHERE system_type_id = @system_type_id;
-
-    RETURN @size;
-END;
-GO
-
-CREATE OR ALTER FUNCTION m.string_length
-(
-    @type sysname,
-    @max_length int
-)
-RETURNS int
-AS
-BEGIN
-    RETURN (
-        SELECT m._string_length(bt.system_type_id, @max_length)
-        FROM            sys.types AS rt -- requested type
-            INNER JOIN  sys.types AS bt -- base type
-                ON bt.user_type_id = rt.system_type_id AND bt.user_type_id = bt.system_type_id
-        WHERE rt.user_type_id = TYPE_ID(@type)
-    )
-END;
-GO
-
-go
 
 -- ---------------------------------------------
 -- procedures/create_default.sql

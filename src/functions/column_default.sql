@@ -28,8 +28,8 @@ BEGIN
 
     SELECT
         @object_id = [object_id],
-        @default_value = [default_value],
-    FROM $(SchemaName).parse_column_name(@column);
+        @default_value = [default_value]
+    FROM $(SchemaName).column_info(@column);
 
     IF @object_id IS NULL
         RETURN NULL;

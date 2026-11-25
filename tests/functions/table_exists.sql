@@ -83,7 +83,7 @@ END
 GO
 
 -- 7. Quoted name with dot inside
-CREATE OR ALTER PROCEDURE sstr.table_exists_should_handle_quoted_name_with_dot
+CREATE OR ALTER PROCEDURE sstr.table_exists_should_handle_quote_name_with_dot
 AS
 BEGIN
     IF SCHEMA_ID('__sstr_schema') IS NULL EXEC('CREATE SCHEMA __sstr_schema');
