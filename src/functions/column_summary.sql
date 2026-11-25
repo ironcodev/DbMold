@@ -16,6 +16,7 @@ return
             + N'.' + quotename(c.table_name)
             + N'.' + quotename(c.column_name)
         ),
+        [length]        = c.[length],
         [nullable]      = c.is_nullable,
         [identity]      = c.is_identity,
         [computed]      = c.is_computed,

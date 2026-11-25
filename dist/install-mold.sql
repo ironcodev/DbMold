@@ -1382,10 +1382,10 @@ begin
     set @sql =
         N'select @result =
             case
-                when @a collate ' + quotename(@collation) + N'
-                   = @b collate ' + quotename(@collation) + N' then 0
-                when @a collate ' + quotename(@collation) + N'
-                   < @b collate ' + quotename(@collation) + N' then -1
+                when @a collate ' + @collation + N'
+                   = @b collate ' + @collation + N' then 0
+                when @a collate ' + @collation + N'
+                   < @b collate ' + @collation + N' then -1
                 else 1
             end;';
 
@@ -3355,6 +3355,7 @@ return
             + N'.' + quotename(c.table_name)
             + N'.' + quotename(c.column_name)
         ),
+        [length]        = c.[length],
         [nullable]      = c.is_nullable,
         [identity]      = c.is_identity,
         [computed]      = c.is_computed,
