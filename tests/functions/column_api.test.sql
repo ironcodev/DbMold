@@ -456,7 +456,7 @@ END
 GO
 
 -- =============================================
--- column_type (TVF)
+-- column_type_info (TVF)
 -- =============================================
 
 CREATE OR ALTER PROCEDURE sstr.column_api_column_type_should_return_int_info
@@ -469,7 +469,7 @@ BEGIN
         @type = type_name,
         @user_type_id = user_type_id,
         @system_type_id = system_type_id
-    FROM $(SchemaName).column_type(N'dbo.__sstr_cp_tbl.Id');
+    FROM $(SchemaName).column_type_info(N'dbo.__sstr_cp_tbl.Id');
 
     EXEC Assert.Equals @type, 'int';
     EXEC Assert.Equals @system_type_id, 56;          -- int = 56
@@ -484,7 +484,7 @@ CREATE OR ALTER PROCEDURE sstr.column_api_column_type_should_return_empty_for_mi
 AS
 BEGIN
     DECLARE @count int =
-        (SELECT COUNT(*) FROM $(SchemaName).column_type(N'dbo.__sstr_no_such_table.Col'));
+        (SELECT COUNT(*) FROM $(SchemaName).column_type_info(N'dbo.__sstr_no_such_table.Col'));
     EXEC Assert.Equals @count, 0;
 END
 GO

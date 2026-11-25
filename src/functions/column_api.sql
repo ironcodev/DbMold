@@ -85,6 +85,90 @@ BEGIN
 END;
 GO
 
+
+create or alter function $(SchemaName).column_type
+(
+    @column $(SchemaName).object_name
+)
+returns nvarchar(517)
+as
+begin
+    declare @type_name sysname;
+    declare @length int;
+    declare @max_length int;
+    declare @precision tinyint;
+    declare @scale tinyint;
+    declare @has_user_defined_type bit;
+    declare @type_length nvarchar(35);
+    declare @type_schema_name sysname;
+    declare @xml_schema_collection_id int;
+    declare @xml_schema_collection_name sysname;
+    declare @xml_schema_collection_schema_name sysname;
+    declare @is_xml_document bit;
+
+    select
+        @type_name = type_name,
+        @length = length,
+        @precision = precision,
+        @scale = scale,
+        @has_user_defined_type = has_user_defined_type,
+        @type_schema_name = type_schema_name,
+        @xml_schema_collection_id = xml_schema_collection_id,
+        @xml_schema_collection_name = xml_schema_collection_name,
+        @xml_schema_collection_schema_name = xml_schema_collection_schema_name,
+        @is_xml_document = is_xml_document
+    from $(SchemaName).column_info(@column);
+
+    if @type_name is null
+        return null;
+
+    if @has_user_defined_type = 1
+        return quotename(@type_schema_name) + N'.' + quotename(@type_name);
+
+    if @type_name = N'xml'
+    begin
+        if @xml_schema_collection_id is null
+            return N'xml';
+
+        return
+            N'xml('
+            + case when @is_xml_document = 1 then N'DOCUMENT ' else N'CONTENT ' end
+            + quotename(@xml_schema_collection_schema_name)
+            + N'.'
+            + quotename(@xml_schema_collection_name)
+            + N')';
+    end;
+
+    if @type_name in (N'char', N'varchar', N'nchar', N'nvarchar', N'binary', N'varbinary')
+    begin
+        set @max_length = $(SchemaName).string_max_length(@type_name, @length);
+
+        if @max_length = -1
+            set @type_length = N'(max)';
+        else
+            set @type_length = N'(' + convert(nvarchar(10), @max_length) + N')';
+
+        return @type_name + @type_length;
+    end;
+
+    if @type_name in (N'decimal', N'numeric')
+        return @type_name
+            + N'(' + convert(nvarchar(3), @precision)
+            + N',' + convert(nvarchar(3), @scale) + N')';
+
+    if @type_name in (N'time', N'datetime2', N'datetimeoffset', N'float')
+        return @type_name
+            + N'(' + convert(nvarchar(3),
+                case
+                    when @type_name = N'float' then @precision
+                    else @scale
+                end
+            ) + N')';
+
+    return @type_name;
+end;
+go
+
 CREATE OR ALTER FUNCTION $(SchemaName).column_collation(@column $(SchemaName).object_name)
 RETURNS sysname
 AS

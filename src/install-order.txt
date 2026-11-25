@@ -39,6 +39,7 @@ helpers/procedures/str_compare.sql
 
 functions/_normalize_default.sql
 functions/string_length.sql
+functions/string_max_length.sql
 functions/default_schema.sql
 functions/resolve_db.sql
 functions/resolve_schema.sql
@@ -55,13 +56,16 @@ functions/column_default.sql
 functions/column_info.sql
 functions/column_foreign_keys.sql
 functions/column_api.sql
-functions/column_type.sql
+functions/column_type_info.sql
+functions/column_xml_info.sql
+functions/column_summary.sql
 functions/column_exists.sql
 functions/column_dependencies.sql
 functions/column_type_change.sql
 functions/table_exists.sql
 functions/table_info.sql
 functions/table_api.sql
+functions/table_summary.sql
 functions/record_exists.sql
 
 procedures/create_default.sql

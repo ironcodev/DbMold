@@ -1514,6 +1514,75 @@ GO
 go
 
 -- ---------------------------------------------
+-- functions/string_max_length.sql
+-- ---------------------------------------------
+create or alter function mold._string_max_length
+(
+    @system_type_id int,
+    @length int
+)
+returns int
+as
+begin
+    if @system_type_id is null
+        return null;
+
+    declare @max_length int = 0;
+
+    ;with string_type_families as
+    (
+        select
+            system_type_id,
+            case
+                when name in (N'varchar', N'char', N'varbinary', N'binary')
+                    then N'bytes'
+
+                when name in (N'nvarchar', N'nchar')
+                    then N'unicode'
+
+                when name in (N'text', N'ntext', N'xml', N'image')
+                    then N'max'
+            end size_family
+        from sys.types
+        where user_type_id = system_type_id
+            and is_user_defined = 0
+    )
+    select @max_length =
+        case size_family
+            when N'bytes'   then @length
+            when N'unicode' then case when @length = -1 then -1 else @length * 2 end
+            when N'max'     then -1
+            else 0
+        end
+    from string_type_families
+    where system_type_id = @system_type_id;
+
+    return @max_length;
+end;
+go
+
+create or alter function mold.string_max_length
+(
+    @type sysname,
+    @length int
+)
+returns int
+as
+begin
+    return
+    (
+        select mold._string_max_length(bt.system_type_id, @length)
+        from            sys.types rt -- requested type
+            inner join  sys.types bt
+                on  bt.user_type_id = rt.system_type_id
+                    and bt.user_type_id = bt.system_type_id
+        where rt.user_type_id = type_id(@type)
+    );
+end;
+go
+
+
+-- ---------------------------------------------
 -- functions/default_schema.sql
 -- ---------------------------------------------
 create or alter function mold.default_schema()
@@ -2683,7 +2752,7 @@ go
 --     [primary_key_constraint]  sysname,   -- name of the PK constraint, NULL if not in the PK
 -- )
 -- =============================================
-create function mold.column_info
+create or alter function mold.column_info
 (
     @column mold.object_name
 )
@@ -2697,61 +2766,70 @@ return
             [object_id], [db], [schema], [table], [column]
         from mold.parse_column_name(@column)
         where [column] is not null
+
         union all
+
         select
             [object_id], [db], [schema], [table], [column]
         from mold.parse_table_name(@column)
         where [column] is null
     )
     select
-        [object_id]               = p.[object_id],
-        [db]                      = p.[db],
-        [schema_name]             = p.[schema],
-        [table_name]              = p.[table],
-        [column_name]             = c.name,
-        [column_id]               = c.column_id,
-        [type_name]               = t.name,
-        [type_schema_id]          = t.schema_id,
-        [type_schema_name]        = schema_name(t.schema_id),
-        [user_type_id]            = c.user_type_id,
-        [system_type_id]          = c.system_type_id,
-        [max_length]              = c.max_length,
-        [length]                  = mold._string_length(c.system_type_id, c.max_length),
-        [precision]               = c.[precision],
-        [scale]                   = c.scale,
-        [collation_name]          = c.collation_name,
-        [is_nullable]             = c.is_nullable,
-        [is_identity]             = c.is_identity,
-        [is_computed]             = c.is_computed,
-        [is_persisted]            = isnull(cc.is_persisted, 0),
-        [is_sparse]               = c.is_sparse,
-        [is_filestream]           = c.is_filestream,
-        [is_xml]                  = case when c.system_type_id = 241 then 1 else 0 end,
-        [is_xml_document]         = c.is_xml_document,
-        [is_rowguidcol]           = c.is_rowguidcol,
-        [default_value]           = mold._normalize_default(dc.definition),
-        [default_name]            = dc.name,
-        [computed_definition]     = cc.definition,
-        [column_description]      = cast(ep.value as nvarchar(max)),
-        [parent_column]           = fk.parent_column,
-        [is_primary_key]          = case when pk.column_id is not null then 1 else 0 end,
-        [primary_key_constraint]  = pk.pk_name
-    from            parsed                  p
-        inner join  sys.columns             c    on  c.object_id = p.object_id
-                                                        and (c.name = p.[column] or p.[column] is null)
-        inner join  sys.types               t    on  t.user_type_id = c.user_type_id
-        left  join  sys.default_constraints dc   on  dc.parent_object_id = c.object_id
-                                                        and dc.parent_column_id = c.column_id
-        left  join  sys.computed_columns    cc   on  cc.object_id = c.object_id
-                                                        and cc.column_id = c.column_id
-        left  join  sys.extended_properties ep   on  ep.major_id = c.object_id
-                                                        and ep.minor_id = c.column_id
-                                                        and ep.name = N'MS_Description'
-                                                        and ep.class = 1
-        left  join
+        [object_id]                       = p.[object_id],
+        [db]                              = p.[db],
+        [schema_name]                     = p.[schema],
+        [table_name]                      = p.[table],
+        [column_name]                     = c.name,
+        [column_id]                       = c.column_id,
+        [type_name]                       = t.name,
+        [type_schema_id]                  = t.schema_id,
+        [type_schema_name]                = schema_name(t.schema_id),
+        [user_type_id]                    = c.user_type_id,
+        [system_type_id]                  = c.system_type_id,
+        [has_user_defined_type]           = t.is_user_defined,
+        [has_assembly_type]               = t.is_assembly_type,
+        [max_length]                      = c.max_length,
+        [length]                          = mold._string_length(c.system_type_id, c.max_length),
+        [precision]                       = c.[precision],
+        [scale]                           = c.scale,
+        [collation_name]                  = c.collation_name,
+        [is_nullable]                     = c.is_nullable,
+        [is_identity]                     = c.is_identity,
+        [is_computed]                     = c.is_computed,
+        [is_persisted]                    = isnull(cc.is_persisted, 0),
+        [is_sparse]                       = c.is_sparse,
+        [is_filestream]                   = c.is_filestream,
+        [is_xml]                          = case when c.system_type_id = 241 then 1 else 0 end,
+        [is_xml_document]                 = c.is_xml_document,
+        [xml_schema_collection_id]        = nullif(c.xml_collection_id, 0),
+        [xml_schema_collection_name]      = xsc.name,
+        [xml_schema_collection_schema_id] = xsc.schema_id,
+        [xml_schema_collection_schema_name] = schema_name(xsc.schema_id),
+        [is_rowguidcol]                   = c.is_rowguidcol,
+        [default_value]                   = mold._normalize_default(dc.definition),
+        [default_name]                    = dc.name,
+        [computed_definition]             = cc.definition,
+        [column_description]              = cast(ep.value as nvarchar(max)),
+        [parent_column]                   = fk.parent_column,
+        [is_primary_key]                  = case when pk.column_id is not null then 1 else 0 end,
+        [primary_key_constraint]          = pk.pk_name
+    from            parsed                      p
+        inner join  sys.columns                 c    on  c.object_id = p.object_id
+                                                            and (c.name = p.[column] or p.[column] is null)
+        inner join  sys.types                   t    on  t.user_type_id = c.user_type_id
+        left join   sys.xml_schema_collections  xsc  on  xsc.xml_collection_id = c.xml_collection_id
+        left join   sys.default_constraints     dc   on  dc.parent_object_id = c.object_id
+                                                            and dc.parent_column_id = c.column_id
+        left join   sys.computed_columns        cc   on  cc.object_id = c.object_id
+                                                            and cc.column_id = c.column_id
+        left join   sys.extended_properties     ep   on  ep.major_id = c.object_id
+                                                            and ep.minor_id = c.column_id
+                                                            and ep.name = N'MS_Description'
+                                                            and ep.class = 1
+        left join
         (
             select
-                ic.object_id, ic.column_id, i.name as pk_name
+                ic.object_id, ic.column_id, i.name pk_name
             from            sys.index_columns ic
                 inner join  sys.indexes       i on i.object_id = ic.object_id and i.index_id = ic.index_id
             where i.is_primary_key = 1
@@ -2777,7 +2855,7 @@ return
                                             and rc.column_id = fkc.referenced_column_id
                             where fkc.parent_object_id = c.object_id
                                 and fkc.parent_column_id = c.column_id
-                        ) as pc
+                        ) pc
                         order by pc.parent_column
                         for xml path(''), type
                     ).value('.', 'nvarchar(max)'),
@@ -2785,9 +2863,10 @@ return
                     2,
                     N''
                 )
-        ) as fk
-    where p.object_id is not null and p.[db] = DB_NAME()
-)
+        ) fk
+    where p.object_id is not null
+        and p.[db] = db_name()
+);
 go
 
 
@@ -2978,6 +3057,90 @@ BEGIN
 END;
 GO
 
+
+create or alter function mold.column_type
+(
+    @column mold.object_name
+)
+returns nvarchar(517)
+as
+begin
+    declare @type_name sysname;
+    declare @length int;
+    declare @max_length int;
+    declare @precision tinyint;
+    declare @scale tinyint;
+    declare @has_user_defined_type bit;
+    declare @type_length nvarchar(35);
+    declare @type_schema_name sysname;
+    declare @xml_schema_collection_id int;
+    declare @xml_schema_collection_name sysname;
+    declare @xml_schema_collection_schema_name sysname;
+    declare @is_xml_document bit;
+
+    select
+        @type_name = type_name,
+        @length = length,
+        @precision = precision,
+        @scale = scale,
+        @has_user_defined_type = has_user_defined_type,
+        @type_schema_name = type_schema_name,
+        @xml_schema_collection_id = xml_schema_collection_id,
+        @xml_schema_collection_name = xml_schema_collection_name,
+        @xml_schema_collection_schema_name = xml_schema_collection_schema_name,
+        @is_xml_document = is_xml_document
+    from mold.column_info(@column);
+
+    if @type_name is null
+        return null;
+
+    if @has_user_defined_type = 1
+        return quotename(@type_schema_name) + N'.' + quotename(@type_name);
+
+    if @type_name = N'xml'
+    begin
+        if @xml_schema_collection_id is null
+            return N'xml';
+
+        return
+            N'xml('
+            + case when @is_xml_document = 1 then N'DOCUMENT ' else N'CONTENT ' end
+            + quotename(@xml_schema_collection_schema_name)
+            + N'.'
+            + quotename(@xml_schema_collection_name)
+            + N')';
+    end;
+
+    if @type_name in (N'char', N'varchar', N'nchar', N'nvarchar', N'binary', N'varbinary')
+    begin
+        set @max_length = mold.string_max_length(@type_name, @length);
+
+        if @max_length = -1
+            set @type_length = N'(max)';
+        else
+            set @type_length = N'(' + convert(nvarchar(10), @max_length) + N')';
+
+        return @type_name + @type_length;
+    end;
+
+    if @type_name in (N'decimal', N'numeric')
+        return @type_name
+            + N'(' + convert(nvarchar(3), @precision)
+            + N',' + convert(nvarchar(3), @scale) + N')';
+
+    if @type_name in (N'time', N'datetime2', N'datetimeoffset', N'float')
+        return @type_name
+            + N'(' + convert(nvarchar(3),
+                case
+                    when @type_name = N'float' then @precision
+                    else @scale
+                end
+            ) + N')';
+
+    return @type_name;
+end;
+go
+
 CREATE OR ALTER FUNCTION mold.column_collation(@column mold.object_name)
 RETURNS sysname
 AS
@@ -3114,10 +3277,10 @@ GO
 go
 
 -- ---------------------------------------------
--- functions/column_type.sql
+-- functions/column_type_info.sql
 -- ---------------------------------------------
 -- =============================================
--- mold.column_type
+-- mold.column_type_info
 -- =============================================
 -- Returns a single row with type information for a column,
 -- or an empty result set if the column does not exist.
@@ -3125,7 +3288,7 @@ go
 -- Columns returned:
 --   type_name, user_type_id, system_type_id
 -- =============================================
-CREATE OR ALTER FUNCTION mold.column_type
+CREATE OR ALTER FUNCTION mold.column_type_info
 (
     @column mold.object_name
 )
@@ -3134,14 +3297,78 @@ AS
 RETURN
 (
     SELECT
-        type_name,
-        user_type_id,
-        system_type_id
+        [type_name],
+        [type_schema_id],
+        [type_schema_name],
+        [user_type_id],
+        [system_type_id],
+        [has_user_defined_type],
+        [has_assembly_type]
     FROM mold.column_info(@column)
 );
 GO
 
 go
+
+-- ---------------------------------------------
+-- functions/column_xml_info.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold.column_xml_info
+(
+    @column mold.object_name
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        [is_xml]                          ,
+        [is_xml_document]                 ,
+        [xml_schema_collection_id]        ,
+        [xml_schema_collection_name]      ,
+        [xml_schema_collection_schema_id] ,
+        [xml_schema_collection_schema_name]
+    FROM mold.column_info(@column)
+);
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/column_summary.sql
+-- ---------------------------------------------
+create or alter function mold.column_summary
+(
+    @column mold.object_name
+)
+returns table
+as
+return
+(
+    select
+        [column_id]     = c.column_id,
+        [pk]            = c.is_primary_key,
+        [name]          = c.column_name,
+        [type]          = mold.column_type
+        (
+                     quotename(c.schema_name)
+            + N'.' + quotename(c.table_name)
+            + N'.' + quotename(c.column_name)
+        ),
+        [nullable]      = c.is_nullable,
+        [identity]      = c.is_identity,
+        [computed]      = c.is_computed,
+        [persisted]     = c.is_persisted,
+        [sparse]        = c.is_sparse,
+        [filestream]    = c.is_filestream,
+        [default]       = c.default_value,
+        [formula]       = c.computed_definition,
+        [description]   = c.column_description,
+        [parent]        = c.parent_column
+    from mold.column_info(@column) c
+);
+go
+
 
 -- ---------------------------------------------
 -- functions/column_exists.sql
@@ -3866,6 +4093,24 @@ AS
 BEGIN
     RETURN CASE WHEN EXISTS (SELECT 1 FROM mold.column_info(@name) WHERE type_name = @type) THEN 1 ELSE 0 END;
 END;
+GO
+
+go
+
+-- ---------------------------------------------
+-- functions/table_summary.sql
+-- ---------------------------------------------
+CREATE OR ALTER FUNCTION mold.table_summary
+(
+    @name mold.object_name
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT ci.*
+    FROM mold.column_summary(@name) AS ci
+);
 GO
 
 go
