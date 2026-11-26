@@ -232,17 +232,31 @@ go
 -- ---------------------------------------------
 -- helpers/functions/is_integer.sql
 -- ---------------------------------------------
-create or alter function mold.[is_integer]
+CREATE OR ALTER FUNCTION mold.[is_integer]
 (
-	@x varchar(20)
+    @x VARCHAR(30)
 )
-returns bit
-as
-begin
-	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
-end
-go
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @digits VARCHAR(30) =
+        CASE
+            WHEN @x LIKE '[+-]%' THEN SUBSTRING(@x, 2, 30)
+            ELSE @x
+        END;
 
+    RETURN
+    (
+        SELECT ISNULL(
+            (SELECT 0
+             WHERE @digits LIKE '%[^0-9]%'
+                OR @digits = ''
+            ), 1)
+    )
+END
+GO
+
+go
 
 -- ---------------------------------------------
 -- helpers/functions/is_decimal.sql
@@ -1763,10 +1777,10 @@ go
 
 
 -- ---------------------------------------------
--- functions/parse_column_type.sql
+-- functions/parse_type.sql
 -- ---------------------------------------------
 -- =============================================
--- mold.parse_column_type
+-- mold.parse_type
 -- =============================================
 -- Parses a T-SQL type declaration string and returns a single row of
 -- normalized metadata describing the type. Intended as the single
@@ -1781,15 +1795,15 @@ go
 --   'datetime2(7)'
 --   'uniqueidentifier'
 --   '[dbo].[MyUdt]'
---   'varchar(100) NOT NULL'   -- trailing NULL / NOT NULL is stripped
+--   'varchar(100)?'   -- is_nullable
 --
 -- Returns one row with:
---   input_type, base_type_name, type_schema, type_name, normalized_type,
+--   base_type_name, type_schema, type_name, normalized_type,
 --   args, arg1, arg2,
 --   system_type_id, user_type_id, type_schema_id,
 --   is_user_defined, is_table_type, is_assembly_type, collation_name,
 --   is_max, char_length, byte_length, precision, scale, fractional_scale,
---   is_valid, validation_error
+--   is_valid, validation_error, is_nullable
 --
 -- Notes:
 --   - char_length is in CHARACTERS for nchar/nvarchar and BYTES otherwise.
@@ -1799,7 +1813,7 @@ go
 --     or the type is a user-defined table type. Callers should THROW
 --     using validation_error verbatim.
 -- =============================================
-CREATE OR ALTER FUNCTION mold.parse_column_type
+CREATE OR ALTER FUNCTION mold.parse_type
 (
     @type nvarchar(4000)
 )
@@ -1808,17 +1822,20 @@ AS
 RETURN
 (
     WITH
+    trimmed AS
+    (
+        select value = trim(@type)
+    ),
     src AS
     (
         SELECT
-            cleaned = LTRIM(RTRIM(
-                          CASE
-                              WHEN LTRIM(RTRIM(@type)) LIKE N'% NOT NULL'
-                                  THEN LEFT(LTRIM(RTRIM(@type)), LEN(LTRIM(RTRIM(@type))) - 9)
-                              WHEN LTRIM(RTRIM(@type)) LIKE N'% NULL'
-                                  THEN LEFT(LTRIM(RTRIM(@type)), LEN(LTRIM(RTRIM(@type))) - 5)
-                              ELSE LTRIM(RTRIM(@type))
-                          END))
+            cleaned = case
+                        when right(t.value, 1) = '?' then
+                            left(t.value, len(t.value) - 1)
+                        else t.value
+                    end,
+            is_nullable = case when right(t.value, 1) = '?' then 1 else 0 end
+        FROM trimmed as t
     ),
     split AS
     (
@@ -2064,48 +2081,47 @@ RETURN
         FROM resolved AS r
     )
     SELECT
-        input_type         = @type,
+        base_type_name     = i.base_clean,
+        type_schema        = i.schema_part,
+        type_name          = i.type_name,
+        normalized_type    = i.normalized_type,
+        args               = i.args,
+        arg1               = i.p1,
+        arg2               = i.p2,
 
-        base_type_name     = base_clean,
-        type_schema        = schema_part,
-        type_name          = type_name,
-        normalized_type    = normalized_type,
-        args               = args,
-        arg1               = p1,
-        arg2               = p2,
+        system_type_id     = i.system_type_id,
+        user_type_id       = i.user_type_id,
+        type_schema_id     = i.type_schema_id,
+        is_user_defined    = i.is_user_defined,
+        is_table_type      = i.is_table_type,
+        is_assembly_type   = i.is_assembly_type,
+        collation_name     = i.collation_name,
 
-        system_type_id     = system_type_id,
-        user_type_id       = user_type_id,
-        type_schema_id     = type_schema_id,
-        is_user_defined    = is_user_defined,
-        is_table_type      = is_table_type,
-        is_assembly_type   = is_assembly_type,
-        collation_name     = collation_name,
-
-        is_max             = is_max,
-        char_length        = char_length,
-        byte_length        = byte_length,
-        precision          = num_precision,
-        scale              = num_scale,
-        fractional_scale   = frac_scale,
+        is_max             = i.is_max,
+        char_length        = i.char_length,
+        byte_length        = i.byte_length,
+        precision          = i.num_precision,
+        scale              = i.num_scale,
+        fractional_scale   = i.frac_scale,
 
         is_valid           = CASE
-                                 WHEN has_unknown_base_type = 1 THEN 0
-                                 WHEN has_bad_arg = 1 THEN 0
-                                 WHEN is_table_type = 1 THEN 0
+                                 WHEN i.has_unknown_base_type = 1 THEN 0
+                                 WHEN i.has_bad_arg = 1 THEN 0
+                                 WHEN i.is_table_type = 1 THEN 0
                                  ELSE 1
                              END,
         validation_error   =
             CASE
-                WHEN has_unknown_base_type = 1
-                    THEN N'Unknown type name: ' + ISNULL(base_clean, N'(null)')
-                WHEN is_table_type = 1
-                    THEN N'User-defined table types cannot be used as column types: ' + base_clean
-                WHEN has_bad_arg = 1
-                    THEN N'Invalid argument(s) for type ' + base_clean + N': (' + ISNULL(args, N'') + N')'
+                WHEN i.has_unknown_base_type = 1
+                    THEN N'Unknown type name: ' + ISNULL(i.base_clean, N'(null)')
+                WHEN i.is_table_type = 1
+                    THEN N'User-defined table types cannot be used as column types: ' + i.base_clean
+                WHEN i.has_bad_arg = 1
+                    THEN N'Invalid argument(s) for type ' + i.base_clean + N': (' + ISNULL(i.args, N'') + N')'
                 ELSE NULL
-            END
-    FROM interpreted
+            END,
+        s.is_nullable
+    FROM interpreted i, src s
 );
 go
 
@@ -4200,7 +4216,7 @@ go
 -- =============================================
 CREATE OR ALTER PROCEDURE mold.create_default
 (
-    @column nvarchar(1000),
+    @column mold.object_name,
     @value  nvarchar(max),
     @name   sysname = NULL
 )
@@ -4353,7 +4369,7 @@ GO
 --     "timeout":      10000                      -- optional, lock timeout ms
 --   }
 --
---   "type" follows T-SQL declaration syntax and is parsed by parse_column_type
+--   "type" follows T-SQL declaration syntax and is parsed by parse_type
 --   (e.g. 'varchar(100)', 'decimal(18,2)', 'nvarchar(max)', 'datetime2(7)').
 --   When "computed" is supplied, "type" and the identity/sparse/default fields
 --   are ignored; the computed expression and persisted flag are the contract.
@@ -4460,7 +4476,7 @@ BEGIN
     DECLARE @table        nvarchar(1000),
             @name         nvarchar(500),
             @type         nvarchar(4000),
-            @nullable     bit = 0,
+            @nullable     bit,
             @sparse       bit = 0,
             @default      nvarchar(max),
             @default_name nvarchar(500),
@@ -4478,7 +4494,7 @@ BEGIN
             @table        = j.[table],
             @name         = j.[name],
             @type         = j.[type],
-            @nullable     = ISNULL(j.[nullable], 0),
+            @nullable     = j.[nullable],
             @sparse       = ISNULL(j.[sparse], 0),
             @default      = j.[default],
             @default_name = j.default_name,
@@ -4532,6 +4548,7 @@ BEGIN
 
         DECLARE @full_table  nvarchar(1500) = QUOTENAME(@schema) + N'.' + QUOTENAME(@tbl);
         DECLARE @full_column nvarchar(1500) = @full_table + N'.' + QUOTENAME(@name);
+        DECLARE @msg_type    nvarchar(2048)
 
         ------------------------------------------------------------------
         -- 3. Validate type (unless computed)
@@ -4549,7 +4566,8 @@ BEGIN
             byte_length      int,
             precision        int,
             scale            int,
-            fractional_scale int
+            fractional_scale int,
+            is_nullable      bit
         );
 
         IF @computed = 0
@@ -4568,15 +4586,30 @@ BEGIN
                 byte_length,
                 precision,
                 scale,
-                fractional_scale
-            FROM mold.parse_column_type(@type);
+                fractional_scale,
+                is_nullable
+            FROM mold.parse_type(@type);
 
             IF (SELECT is_valid FROM @t) = 0
             BEGIN
-                DECLARE @msg_type nvarchar(2048) =
+                SET @msg_type =
                     N'create_column: ' + ISNULL((SELECT validation_error FROM @t), N'invalid type.');
                 ;THROW 50002, @msg_type, 1;
             END
+        END
+
+        DECLARE @t_is_nullable bit
+
+        SET @t_is_nullable = isnull((SELECT is_nullable FROM @t), 0)
+
+        IF @nullable is null
+            SET @nullable = @t_is_nullable
+
+        IF @nullable = 0 and @t_is_nullable = 1
+        BEGIN
+            SET @msg_type =
+                N'create_column: nullabality conflict. column is set explicitly not nullable, but its "type" says it is nullable.';
+            ;THROW 50002, @msg_type, 1;
         END
 
         ------------------------------------------------------------------
@@ -5060,3 +5093,246 @@ END
 GO
 
 go
+
+-- ---------------------------------------------
+-- procedures/_create_table_parse_spec.sql
+-- ---------------------------------------------
+
+create or alter procedure mold._create_table_parse_spec
+    @spec nvarchar(max)
+as
+begin
+    set nocount on;
+
+    declare
+        @first_char             nchar(1),
+        @position               int = 1,
+        @table_name             nvarchar(max),
+        @columns_json           nvarchar(max),
+        @primary_key_json       nvarchar(max),
+        @primary_key_type       int,
+        @filegroups_json        nvarchar(max),
+        @dry_run_value          nvarchar(max),
+        @timeout_value          nvarchar(max),
+        @dry_run_type           int,
+        @timeout_type           int,
+        @dry_run                bit = 0,
+        @timeout                int = -1,
+        @primary_key_supplied   bit = 0,
+        @filegroups_supplied    bit = 0;
+
+    declare @properties table
+    (
+        [key]   nvarchar(4000) collate Latin1_General_100_BIN2 not null,
+        [value] nvarchar(max) null,
+        [type]  int not null
+    );
+
+    if @spec is null or isjson(@spec) <> 1
+        throw 50000, N'Invalid JSON specification.', 1;
+
+    -- Require a JSON object, not an array or scalar.
+    while @position <= len(@spec)
+    begin
+        set @first_char = substring(@spec, @position, 1);
+
+        if @first_char not in (N' ', nchar(9), nchar(10), nchar(13))
+            break;
+
+        set @position += 1;
+    end;
+
+    if substring(@spec, @position, 1) <> N'{'
+        throw 50000, N'The specification must be a JSON object.', 1;
+
+    insert into @properties
+    (
+        [key],
+        [value],
+        [type]
+    )
+    select
+        [key],
+        [value],
+        [type]
+    from openjson(@spec);
+
+    if exists
+    (
+        select [key]
+        from @properties
+        group by [key]
+        having count(*) > 1
+    )
+        throw 50000, N'Duplicate JSON properties are not allowed.', 1;
+
+    if exists
+    (
+        select 1
+        from @properties
+        where [key] not in
+        (
+            N'name',
+            N'columns',
+            N'primaryKey',
+            N'filegroups',
+            N'dryRun',
+            N'timeout'
+        )
+    )
+        throw 50000, N'Unknown property in table specification.', 1;
+
+    -- name
+    if not exists
+    (
+        select 1
+        from @properties
+        where [key] = N'name'
+          and [type] = 1
+    )
+        throw 50000, N'The table name is required and must be a string.', 1;
+
+    select @table_name = [value]
+    from @properties
+    where [key] = N'name';
+
+    if nullif(ltrim(rtrim(@table_name)), N'') is null
+        throw 50000, N'The table name cannot be empty.', 1;
+
+    -- columns
+    if not exists
+    (
+        select 1
+        from @properties
+        where [key] = N'columns'
+          and [type] = 4
+    )
+        throw 50000, N'The columns property is required and must be an array.', 1;
+
+    select @columns_json = [value]
+    from @properties
+    where [key] = N'columns';
+
+    if not exists (select 1 from openjson(@columns_json))
+        throw 50000, N'The columns array cannot be empty.', 1;
+
+    -- primaryKey
+    if exists
+    (
+        select 1
+        from @properties
+        where [key] = N'primaryKey'
+    )
+    begin
+        set @primary_key_supplied = 1;
+
+        select
+            @primary_key_json = [value],
+            @primary_key_type = [type]
+        from @properties
+        where [key] = N'primaryKey';
+
+        if @primary_key_type not in (1, 4, 5)
+            throw 50000, N'primaryKey must be a string, an array, or an object.', 1;
+    end;
+
+    -- filegroups
+    if exists
+    (
+        select 1
+        from @properties
+        where [key] = N'filegroups'
+    )
+    begin
+        set @filegroups_supplied = 1;
+
+        select @filegroups_json = [value]
+        from @properties
+        where [key] = N'filegroups'
+          and [type] = 5;
+
+        if @filegroups_json is null
+            throw 50000, N'filegroups must be an object.', 1;
+    end;
+
+    -- dryRun
+    if exists
+    (
+        select 1
+        from @properties
+        where [key] = N'dryRun'
+    )
+    begin
+        select
+            @dry_run_value = [value],
+            @dry_run_type = [type]
+        from @properties
+        where [key] = N'dryRun';
+
+        if @dry_run_type <> 3
+            throw 50000, N'dryRun must be a boolean.', 1;
+
+        set @dry_run =
+            case @dry_run_value
+                when N'true'  then 1
+                else 0
+            end;
+    end;
+
+    -- timeout
+    if exists
+    (
+        select 1
+        from @properties
+        where [key] = N'timeout'
+    )
+    begin
+        select
+            @timeout_value = [value],
+            @timeout_type = [type]
+        from @properties
+        where [key] = N'timeout';
+
+        if @timeout_type <> 2
+           or try_convert(int, @timeout_value) is null
+            throw 50000, N'timeout must be an integer.', 1;
+
+        set @timeout = convert(int, @timeout_value);
+
+        if @timeout < -1
+            throw 50000, N'timeout cannot be less than -1.', 1;
+    end;
+
+    if object_id(N'tempdb..#create_table_spec') is null
+        throw 50000, N'Required staging table #create_table_spec does not exist.', 1;
+
+    if exists (select 1 from #create_table_spec)
+        throw 50000, N'Staging table #create_table_spec must be empty.', 1;
+
+    insert into #create_table_spec
+    (
+        [table_name],
+        [columns_json],
+        [primary_key_json],
+        [primary_key_type],
+        [filegroups_json],
+        [dry_run],
+        [timeout],
+        [primary_key_supplied],
+        [filegroups_supplied]
+    )
+    values
+    (
+        @table_name,
+        @columns_json,
+        @primary_key_json,
+        @primary_key_type,
+        @filegroups_json,
+        @dry_run,
+        @timeout,
+        @primary_key_supplied,
+        @filegroups_supplied
+    );
+end;
+go
+

@@ -1,5 +1,5 @@
 -- =============================================
--- $(SchemaName).parse_column_type
+-- $(SchemaName).parse_type
 -- =============================================
 -- Parses a T-SQL type declaration string and returns a single row of
 -- normalized metadata describing the type. Intended as the single
@@ -14,15 +14,15 @@
 --   'datetime2(7)'
 --   'uniqueidentifier'
 --   '[dbo].[MyUdt]'
---   'varchar(100) NOT NULL'   -- trailing NULL / NOT NULL is stripped
+--   'varchar(100)?'   -- is_nullable
 --
 -- Returns one row with:
---   input_type, base_type_name, type_schema, type_name, normalized_type,
+--   base_type_name, type_schema, type_name, normalized_type,
 --   args, arg1, arg2,
 --   system_type_id, user_type_id, type_schema_id,
 --   is_user_defined, is_table_type, is_assembly_type, collation_name,
 --   is_max, char_length, byte_length, precision, scale, fractional_scale,
---   is_valid, validation_error
+--   is_valid, validation_error, is_nullable
 --
 -- Notes:
 --   - char_length is in CHARACTERS for nchar/nvarchar and BYTES otherwise.
@@ -32,7 +32,7 @@
 --     or the type is a user-defined table type. Callers should THROW
 --     using validation_error verbatim.
 -- =============================================
-CREATE OR ALTER FUNCTION $(SchemaName).parse_column_type
+CREATE OR ALTER FUNCTION $(SchemaName).parse_type
 (
     @type nvarchar(4000)
 )
@@ -41,17 +41,20 @@ AS
 RETURN
 (
     WITH
+    trimmed AS
+    (
+        select value = trim(@type)
+    ),
     src AS
     (
         SELECT
-            cleaned = LTRIM(RTRIM(
-                          CASE
-                              WHEN LTRIM(RTRIM(@type)) LIKE N'% NOT NULL'
-                                  THEN LEFT(LTRIM(RTRIM(@type)), LEN(LTRIM(RTRIM(@type))) - 9)
-                              WHEN LTRIM(RTRIM(@type)) LIKE N'% NULL'
-                                  THEN LEFT(LTRIM(RTRIM(@type)), LEN(LTRIM(RTRIM(@type))) - 5)
-                              ELSE LTRIM(RTRIM(@type))
-                          END))
+            cleaned = case
+                        when right(t.value, 1) = '?' then
+                            left(t.value, len(t.value) - 1)
+                        else t.value
+                    end,
+            is_nullable = case when right(t.value, 1) = '?' then 1 else 0 end
+        FROM trimmed as t
     ),
     split AS
     (
@@ -297,47 +300,46 @@ RETURN
         FROM resolved AS r
     )
     SELECT
-        input_type         = @type,
+        base_type_name     = i.base_clean,
+        type_schema        = i.schema_part,
+        type_name          = i.type_name,
+        normalized_type    = i.normalized_type,
+        args               = i.args,
+        arg1               = i.p1,
+        arg2               = i.p2,
 
-        base_type_name     = base_clean,
-        type_schema        = schema_part,
-        type_name          = type_name,
-        normalized_type    = normalized_type,
-        args               = args,
-        arg1               = p1,
-        arg2               = p2,
+        system_type_id     = i.system_type_id,
+        user_type_id       = i.user_type_id,
+        type_schema_id     = i.type_schema_id,
+        is_user_defined    = i.is_user_defined,
+        is_table_type      = i.is_table_type,
+        is_assembly_type   = i.is_assembly_type,
+        collation_name     = i.collation_name,
 
-        system_type_id     = system_type_id,
-        user_type_id       = user_type_id,
-        type_schema_id     = type_schema_id,
-        is_user_defined    = is_user_defined,
-        is_table_type      = is_table_type,
-        is_assembly_type   = is_assembly_type,
-        collation_name     = collation_name,
-
-        is_max             = is_max,
-        char_length        = char_length,
-        byte_length        = byte_length,
-        precision          = num_precision,
-        scale              = num_scale,
-        fractional_scale   = frac_scale,
+        is_max             = i.is_max,
+        char_length        = i.char_length,
+        byte_length        = i.byte_length,
+        precision          = i.num_precision,
+        scale              = i.num_scale,
+        fractional_scale   = i.frac_scale,
 
         is_valid           = CASE
-                                 WHEN has_unknown_base_type = 1 THEN 0
-                                 WHEN has_bad_arg = 1 THEN 0
-                                 WHEN is_table_type = 1 THEN 0
+                                 WHEN i.has_unknown_base_type = 1 THEN 0
+                                 WHEN i.has_bad_arg = 1 THEN 0
+                                 WHEN i.is_table_type = 1 THEN 0
                                  ELSE 1
                              END,
         validation_error   =
             CASE
-                WHEN has_unknown_base_type = 1
-                    THEN N'Unknown type name: ' + ISNULL(base_clean, N'(null)')
-                WHEN is_table_type = 1
-                    THEN N'User-defined table types cannot be used as column types: ' + base_clean
-                WHEN has_bad_arg = 1
-                    THEN N'Invalid argument(s) for type ' + base_clean + N': (' + ISNULL(args, N'') + N')'
+                WHEN i.has_unknown_base_type = 1
+                    THEN N'Unknown type name: ' + ISNULL(i.base_clean, N'(null)')
+                WHEN i.is_table_type = 1
+                    THEN N'User-defined table types cannot be used as column types: ' + i.base_clean
+                WHEN i.has_bad_arg = 1
+                    THEN N'Invalid argument(s) for type ' + i.base_clean + N': (' + ISNULL(i.args, N'') + N')'
                 ELSE NULL
-            END
-    FROM interpreted
+            END,
+        s.is_nullable
+    FROM interpreted i, src s
 );
 go

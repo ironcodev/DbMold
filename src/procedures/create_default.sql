@@ -23,7 +23,7 @@
 -- =============================================
 CREATE OR ALTER PROCEDURE $(SchemaName).create_default
 (
-    @column nvarchar(1000),
+    @column $(SchemaName).object_name,
     @value  nvarchar(max),
     @name   sysname = NULL
 )

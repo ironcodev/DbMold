@@ -10,7 +10,7 @@
     "foreign_key_exists": { "skip": true, "postScript": "./tests/functions/foreign_key_exists.postscript.sql" },
     "primary_key_exists": { "skip": true, "postScript": "./tests/functions/primary_key_exists.postscript.sql" },
     "parse_column_name": { "skip": true },
-    "parse_column_type": { "skip": true, "postScript": "./tests/functions/parse_column_type.postscript.sql" },
+    "parse_type": { "skip": true, "postScript": "./tests/functions/parse_type.postscript.sql" },
     "parse_table_name": { "skip": true },
     "table_exists": { "skip": true },
     "_normalize_default": { "skip": true },
@@ -21,6 +21,9 @@
     },
     "column_type_change": { "skip": true, "postScript": "./tests/functions/column_type_change.postscript.sql" },
     "create_column": { "skip": true, "postScript": "./tests/procedures/create_column.postscript.sql" },
-    "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" }
+    "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" },
+    "is_decimal": { "skip": true },
+    "is_integer": { "skip": true },
+    "_create_table_parse_spec.test": { "skip": true }
   }
 }

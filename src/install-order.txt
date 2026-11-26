@@ -46,7 +46,7 @@ functions/resolve_schema.sql
 functions/quote_name.sql
 functions/object_id.sql
 functions/parse_table_name.sql
-functions/parse_column_type.sql
+functions/parse_type.sql
 functions/parse_column_name.sql
 functions/parse_column_list.sql
 functions/default_exists.sql
@@ -70,3 +70,4 @@ functions/record_exists.sql
 
 procedures/create_default.sql
 procedures/create_column.sql
+procedures/_create_table_parse_spec.sql

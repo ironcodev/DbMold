@@ -26,7 +26,7 @@ GO
 --     "timeout":      10000                      -- optional, lock timeout ms
 --   }
 --
---   "type" follows T-SQL declaration syntax and is parsed by parse_column_type
+--   "type" follows T-SQL declaration syntax and is parsed by parse_type
 --   (e.g. 'varchar(100)', 'decimal(18,2)', 'nvarchar(max)', 'datetime2(7)').
 --   When "computed" is supplied, "type" and the identity/sparse/default fields
 --   are ignored; the computed expression and persisted flag are the contract.
@@ -133,7 +133,7 @@ BEGIN
     DECLARE @table        nvarchar(1000),
             @name         nvarchar(500),
             @type         nvarchar(4000),
-            @nullable     bit = 0,
+            @nullable     bit,
             @sparse       bit = 0,
             @default      nvarchar(max),
             @default_name nvarchar(500),
@@ -151,7 +151,7 @@ BEGIN
             @table        = j.[table],
             @name         = j.[name],
             @type         = j.[type],
-            @nullable     = ISNULL(j.[nullable], 0),
+            @nullable     = j.[nullable],
             @sparse       = ISNULL(j.[sparse], 0),
             @default      = j.[default],
             @default_name = j.default_name,
@@ -205,6 +205,7 @@ BEGIN
 
         DECLARE @full_table  nvarchar(1500) = QUOTENAME(@schema) + N'.' + QUOTENAME(@tbl);
         DECLARE @full_column nvarchar(1500) = @full_table + N'.' + QUOTENAME(@name);
+        DECLARE @msg_type    nvarchar(2048)
 
         ------------------------------------------------------------------
         -- 3. Validate type (unless computed)
@@ -222,7 +223,8 @@ BEGIN
             byte_length      int,
             precision        int,
             scale            int,
-            fractional_scale int
+            fractional_scale int,
+            is_nullable      bit
         );
 
         IF @computed = 0
@@ -241,15 +243,30 @@ BEGIN
                 byte_length,
                 precision,
                 scale,
-                fractional_scale
-            FROM $(SchemaName).parse_column_type(@type);
+                fractional_scale,
+                is_nullable
+            FROM $(SchemaName).parse_type(@type);
 
             IF (SELECT is_valid FROM @t) = 0
             BEGIN
-                DECLARE @msg_type nvarchar(2048) =
+                SET @msg_type =
                     N'create_column: ' + ISNULL((SELECT validation_error FROM @t), N'invalid type.');
                 ;THROW 50002, @msg_type, 1;
             END
+        END
+
+        DECLARE @t_is_nullable bit
+
+        SET @t_is_nullable = isnull((SELECT is_nullable FROM @t), 0)
+
+        IF @nullable is null
+            SET @nullable = @t_is_nullable
+
+        IF @nullable = 0 and @t_is_nullable = 1
+        BEGIN
+            SET @msg_type =
+                N'create_column: nullabality conflict. column is set explicitly not nullable, but its "type" says it is nullable.';
+            ;THROW 50002, @msg_type, 1;
         END
 
         ------------------------------------------------------------------

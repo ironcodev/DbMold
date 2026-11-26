@@ -69,6 +69,39 @@ BEGIN
 END
 GO
 
+CREATE OR ALTER PROCEDURE sstr.create_column_creates_simple_nullable_column
+AS
+BEGIN
+    EXEC dbo.create_column_setup;
+
+    EXEC $(SchemaName).create_column @spec = N'{
+        "table": "dbo.__sstr_cc_tbl",
+        "name": "Notes",
+        "type": "nvarchar(200)?"
+    }';
+
+    declare @flag bit
+
+    set @flag = $(SchemaName).column_exists(N'dbo.__sstr_cc_tbl.Notes')
+
+    EXEC Assert.Equals @flag, 1;
+
+    DECLARE @ci TABLE (type_name nvarchar(500), max_length int, is_nullable bit, is_identity bit);
+
+    INSERT @ci(type_name, max_length, is_nullable, is_identity)
+    SELECT type_name, max_length, is_nullable, is_identity
+    FROM $(SchemaName).column_info(N'dbo.__sstr_cc_tbl.Notes');
+
+    DECLARE @tn nvarchar(500), @ml int, @null bit, @ident bit;
+    SELECT @tn = type_name, @ml = max_length, @null = is_nullable, @ident = is_identity FROM @ci;
+
+    EXEC Assert.Equals @tn,    N'nvarchar';
+    EXEC Assert.Equals @ml,    400;
+    EXEC Assert.Equals @null,  1;
+    EXEC Assert.Equals @ident, 0;
+END
+GO
+
 CREATE OR ALTER PROCEDURE sstr.create_column_creates_not_null_column
 AS
 BEGIN
@@ -399,6 +432,28 @@ BEGIN
             "table": "dbo.__sstr_cc_tbl",
             "name": "Bad",
             "type": "not_a_type"
+        }';
+    END TRY
+    BEGIN CATCH
+        SET @err = ERROR_NUMBER();
+    END CATCH
+
+    EXEC Assert.Equals @err, 50002;
+END
+GO
+
+CREATE OR ALTER PROCEDURE sstr.create_column_throws_on_nullabality_conflict
+AS
+BEGIN
+    EXEC dbo.create_column_setup;
+
+    DECLARE @err int = 0;
+    BEGIN TRY
+        EXEC $(SchemaName).create_column @spec = N'{
+            "table": "dbo.__sstr_cc_tbl",
+            "name": "Notes",
+            "type": "nvarchar(200)?",
+            "nullable": false
         }';
     END TRY
     BEGIN CATCH

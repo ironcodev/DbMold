@@ -1,10 +1,23 @@
-create or alter function $(SchemaName).[is_integer]
+CREATE OR ALTER FUNCTION $(SchemaName).[is_integer]
 (
-	@x varchar(20)
+    @x VARCHAR(30)
 )
-returns bit
-as
-begin
-	return (select isnull((select 0 where @x like '%[^0-9]%'), 1))
-end
-go
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @digits VARCHAR(30) =
+        CASE
+            WHEN @x LIKE '[+-]%' THEN SUBSTRING(@x, 2, 30)
+            ELSE @x
+        END;
+
+    RETURN
+    (
+        SELECT ISNULL(
+            (SELECT 0
+             WHERE @digits LIKE '%[^0-9]%'
+                OR @digits = ''
+            ), 1)
+    )
+END
+GO

@@ -1,28 +1,28 @@
 -- =============================================
--- Unit tests for $(SchemaName).parse_column_type
+-- Unit tests for $(SchemaName).parse_type
 -- Run with:  npx sstr run
 -- =============================================
 
 -- =============================================
--- Warm-up / cool-down for the parse_column_type suite
+-- Warm-up / cool-down for the parse_type suite
 -- =============================================
 
-CREATE OR ALTER PROCEDURE dbo.parse_column_type_setup
+CREATE OR ALTER PROCEDURE dbo.parse_type_setup
 AS
 BEGIN
     -- Fail fast with a clear message if the TVF is missing or broken.
-    IF OBJECT_ID(N'$(SchemaName).parse_column_type', N'IF') IS NULL
-        THROW 50000, N'parse_column_type TVF is missing; cannot run suite.', 1;
+    IF OBJECT_ID(N'$(SchemaName).parse_type', N'IF') IS NULL
+        THROW 50000, N'parse_type TVF is missing; cannot run suite.', 1;
 
     -- Smoke-call it once so a compile-time breakage surfaces here, not in every test.
     DECLARE @ok bit;
-    SELECT @ok = is_valid FROM $(SchemaName).parse_column_type(N'int');
+    SELECT @ok = is_valid FROM $(SchemaName).parse_type(N'int');
     IF @ok IS NULL
-        THROW 50001, N'parse_column_type returned no row for N''int''; cannot run suite.', 1;
+        THROW 50001, N'parse_type returned no row for N''int''; cannot run suite.', 1;
 END
 GO
 
-CREATE OR ALTER PROCEDURE dbo.parse_column_type_teardown
+CREATE OR ALTER PROCEDURE dbo.parse_type_teardown
 AS
 BEGIN
     -- Pure-function suite: nothing to clean up.
@@ -31,18 +31,18 @@ BEGIN
 END
 GO
 -- =============================================
--- Tests for $(SchemaName).parse_column_type
+-- Tests for $(SchemaName).parse_type
 -- =============================================
 
 -- ---------------------------------------------
 -- Unknown / garbage input
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_unknown_type_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_unknown_type_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'not_a_real_type');
+               FROM $(SchemaName).parse_type(N'not_a_real_type');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -55,12 +55,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_empty_string_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_empty_string_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'');
+               FROM $(SchemaName).parse_type(N'');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -70,12 +70,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_null_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_null_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(NULL);
+               FROM $(SchemaName).parse_type(NULL);
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -88,7 +88,7 @@ GO
 -- ---------------------------------------------
 -- Fixed-width types with no arguments
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_int_defaults
+CREATE OR ALTER PROCEDURE sstr.parse_type_int_defaults
 AS
 BEGIN
     DECLARE @r TABLE (
@@ -99,7 +99,7 @@ BEGIN
     INSERT @r
     SELECT type_name, normalized_type, system_type_id, byte_length,
            precision, scale, is_valid, is_max, validation_error
-    FROM $(SchemaName).parse_column_type(N'int');
+    FROM $(SchemaName).parse_type(N'int');
 
     DECLARE @type_name nvarchar(500), @norm nvarchar(4000),
             @sysid int, @bytes int, @prec int, @scale int,
@@ -123,12 +123,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_bigint_defaults
+CREATE OR ALTER PROCEDURE sstr.parse_type_bigint_defaults
 AS
 BEGIN
     DECLARE @r TABLE (byte_length int, system_type_id int, is_valid bit);
     INSERT @r SELECT byte_length, system_type_id, is_valid
-               FROM $(SchemaName).parse_column_type(N'bigint');
+               FROM $(SchemaName).parse_type(N'bigint');
 
     DECLARE @bytes int, @sysid int, @valid bit;
     SELECT @bytes = byte_length, @sysid = system_type_id, @valid = is_valid FROM @r;
@@ -139,12 +139,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_bit_defaults
+CREATE OR ALTER PROCEDURE sstr.parse_type_bit_defaults
 AS
 BEGIN
     DECLARE @r TABLE (byte_length int, is_valid bit);
     INSERT @r SELECT byte_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'bit');
+               FROM $(SchemaName).parse_type(N'bit');
 
     DECLARE @bytes int, @valid bit;
     SELECT @bytes = byte_length, @valid = is_valid FROM @r;
@@ -154,12 +154,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_uniqueidentifier_defaults
+CREATE OR ALTER PROCEDURE sstr.parse_type_uniqueidentifier_defaults
 AS
 BEGIN
     DECLARE @r TABLE (byte_length int, is_valid bit);
     INSERT @r SELECT byte_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'uniqueidentifier');
+               FROM $(SchemaName).parse_type(N'uniqueidentifier');
 
     DECLARE @bytes int, @valid bit;
     SELECT @bytes = byte_length, @valid = is_valid FROM @r;
@@ -172,7 +172,7 @@ GO
 -- ---------------------------------------------
 -- Character types
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_varchar_length
+CREATE OR ALTER PROCEDURE sstr.parse_type_varchar_length
 AS
 BEGIN
     DECLARE @r TABLE (
@@ -182,7 +182,7 @@ BEGIN
     );
     INSERT @r
     SELECT type_name, char_length, byte_length, normalized_type, is_valid, is_max, validation_error
-    FROM $(SchemaName).parse_column_type(N'varchar(100)');
+    FROM $(SchemaName).parse_type(N'varchar(100)');
 
     DECLARE @tn nvarchar(500), @cl int, @bl int,
             @norm nvarchar(4000), @valid bit, @is_max bit, @err nvarchar(max);
@@ -201,12 +201,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_varchar_max
+CREATE OR ALTER PROCEDURE sstr.parse_type_varchar_max
 AS
 BEGIN
     DECLARE @r TABLE (char_length int, byte_length int, is_max bit, is_valid bit);
     INSERT @r SELECT char_length, byte_length, is_max, is_valid
-               FROM $(SchemaName).parse_column_type(N'varchar(max)');
+               FROM $(SchemaName).parse_type(N'varchar(max)');
 
     DECLARE @cl int, @bl int, @is_max bit, @valid bit;
     SELECT @cl = char_length, @bl = byte_length,
@@ -220,12 +220,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_nvarchar_doubles_bytes
+CREATE OR ALTER PROCEDURE sstr.parse_type_nvarchar_doubles_bytes
 AS
 BEGIN
     DECLARE @r TABLE (char_length int, byte_length int, is_valid bit);
     INSERT @r SELECT char_length, byte_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'nvarchar(100)');
+               FROM $(SchemaName).parse_type(N'nvarchar(100)');
 
     DECLARE @cl int, @bl int, @valid bit;
     SELECT @cl = char_length, @bl = byte_length, @valid = is_valid FROM @r;
@@ -236,12 +236,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_nvarchar_max
+CREATE OR ALTER PROCEDURE sstr.parse_type_nvarchar_max
 AS
 BEGIN
     DECLARE @r TABLE (char_length int, byte_length int, is_max bit, is_valid bit);
     INSERT @r SELECT char_length, byte_length, is_max, is_valid
-               FROM $(SchemaName).parse_column_type(N'nvarchar(max)');
+               FROM $(SchemaName).parse_type(N'nvarchar(max)');
 
     DECLARE @cl int, @bl int, @is_max bit, @valid bit;
     SELECT @cl = char_length, @bl = byte_length,
@@ -254,12 +254,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_char_default_length
+CREATE OR ALTER PROCEDURE sstr.parse_type_char_default_length
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit);
     INSERT @r SELECT type_name, char_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'char');
+               FROM $(SchemaName).parse_type(N'char');
 
     DECLARE @tn nvarchar(500), @cl int, @valid bit;
     SELECT @tn = type_name, @cl = char_length, @valid = is_valid FROM @r;
@@ -270,12 +270,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_varchar_zero_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_varchar_zero_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'varchar(0)');
+               FROM $(SchemaName).parse_type(N'varchar(0)');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -288,11 +288,11 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_varchar_negative_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_varchar_negative_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit);
-    INSERT @r SELECT is_valid FROM $(SchemaName).parse_column_type(N'varchar(-5)');
+    INSERT @r SELECT is_valid FROM $(SchemaName).parse_type(N'varchar(-5)');
 
     DECLARE @valid bit;
     SELECT @valid = is_valid FROM @r;
@@ -301,11 +301,11 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_varchar_non_numeric_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_varchar_non_numeric_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit);
-    INSERT @r SELECT is_valid FROM $(SchemaName).parse_column_type(N'varchar(abc)');
+    INSERT @r SELECT is_valid FROM $(SchemaName).parse_type(N'varchar(abc)');
 
     DECLARE @valid bit;
     SELECT @valid = is_valid FROM @r;
@@ -317,7 +317,7 @@ GO
 -- ---------------------------------------------
 -- Decimal / numeric
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_decimal_precision_scale
+CREATE OR ALTER PROCEDURE sstr.parse_type_decimal_precision_scale
 AS
 BEGIN
     DECLARE @r TABLE (
@@ -326,7 +326,7 @@ BEGIN
     );
     INSERT @r
     SELECT type_name, precision, scale, normalized_type, is_valid, validation_error
-    FROM $(SchemaName).parse_column_type(N'decimal(18,2)');
+    FROM $(SchemaName).parse_type(N'decimal(18,2)');
 
     DECLARE @tn nvarchar(500), @p int, @s int,
             @norm nvarchar(4000), @valid bit, @err nvarchar(max);
@@ -343,12 +343,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_numeric_alias
+CREATE OR ALTER PROCEDURE sstr.parse_type_numeric_alias
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), precision int, scale int, is_valid bit);
     INSERT @r SELECT type_name, precision, scale, is_valid
-               FROM $(SchemaName).parse_column_type(N'numeric(10,4)');
+               FROM $(SchemaName).parse_type(N'numeric(10,4)');
 
     DECLARE @tn nvarchar(500), @p int, @s int, @valid bit;
     SELECT @tn = type_name, @p = precision, @s = scale, @valid = is_valid FROM @r;
@@ -360,12 +360,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_decimal_default_scale
+CREATE OR ALTER PROCEDURE sstr.parse_type_decimal_default_scale
 AS
 BEGIN
     DECLARE @r TABLE (precision int, scale int, normalized_type nvarchar(4000));
     INSERT @r SELECT precision, scale, normalized_type
-               FROM $(SchemaName).parse_column_type(N'decimal(10)');
+               FROM $(SchemaName).parse_type(N'decimal(10)');
 
     DECLARE @p int, @s int, @norm nvarchar(4000);
     SELECT @p = precision, @s = scale, @norm = normalized_type FROM @r;
@@ -376,12 +376,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_decimal_scale_gt_precision_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_decimal_scale_gt_precision_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'decimal(5,10)');
+               FROM $(SchemaName).parse_type(N'decimal(5,10)');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -394,11 +394,11 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_decimal_precision_gt_38_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_decimal_precision_gt_38_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit);
-    INSERT @r SELECT is_valid FROM $(SchemaName).parse_column_type(N'decimal(39,2)');
+    INSERT @r SELECT is_valid FROM $(SchemaName).parse_type(N'decimal(39,2)');
 
     DECLARE @valid bit;
     SELECT @valid = is_valid FROM @r;
@@ -410,7 +410,7 @@ GO
 -- ---------------------------------------------
 -- Temporal types
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_datetime2_precision
+CREATE OR ALTER PROCEDURE sstr.parse_type_datetime2_precision
 AS
 BEGIN
     DECLARE @r TABLE (
@@ -419,7 +419,7 @@ BEGIN
     );
     INSERT @r
     SELECT type_name, fractional_scale, normalized_type, is_valid
-    FROM $(SchemaName).parse_column_type(N'datetime2(3)');
+    FROM $(SchemaName).parse_type(N'datetime2(3)');
 
     DECLARE @tn nvarchar(500), @fs int, @norm nvarchar(4000), @valid bit;
     SELECT @tn = type_name, @fs = fractional_scale,
@@ -433,12 +433,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_datetime2_default_precision
+CREATE OR ALTER PROCEDURE sstr.parse_type_datetime2_default_precision
 AS
 BEGIN
     DECLARE @r TABLE (fractional_scale int, is_valid bit);
     INSERT @r SELECT fractional_scale, is_valid
-               FROM $(SchemaName).parse_column_type(N'datetime2');
+               FROM $(SchemaName).parse_type(N'datetime2');
 
     DECLARE @fs int, @valid bit;
     SELECT @fs = fractional_scale, @valid = is_valid FROM @r;
@@ -448,11 +448,11 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_datetime2_precision_9_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_datetime2_precision_9_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit);
-    INSERT @r SELECT is_valid FROM $(SchemaName).parse_column_type(N'datetime2(9)');
+    INSERT @r SELECT is_valid FROM $(SchemaName).parse_type(N'datetime2(9)');
 
     DECLARE @valid bit;
     SELECT @valid = is_valid FROM @r;
@@ -461,12 +461,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_time_precision
+CREATE OR ALTER PROCEDURE sstr.parse_type_time_precision
 AS
 BEGIN
     DECLARE @r TABLE (fractional_scale int, is_valid bit);
     INSERT @r SELECT fractional_scale, is_valid
-               FROM $(SchemaName).parse_column_type(N'time(0)');
+               FROM $(SchemaName).parse_type(N'time(0)');
 
     DECLARE @fs int, @valid bit;
     SELECT @fs = fractional_scale, @valid = is_valid FROM @r;
@@ -476,12 +476,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_datetime_no_args
+CREATE OR ALTER PROCEDURE sstr.parse_type_datetime_no_args
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), is_valid bit);
     INSERT @r SELECT type_name, is_valid
-               FROM $(SchemaName).parse_column_type(N'datetime');
+               FROM $(SchemaName).parse_type(N'datetime');
 
     DECLARE @tn nvarchar(500), @valid bit;
     SELECT @tn = type_name, @valid = is_valid FROM @r;
@@ -491,12 +491,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_datetime_with_args_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_datetime_with_args_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'datetime(3)');
+               FROM $(SchemaName).parse_type(N'datetime(3)');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -512,12 +512,12 @@ GO
 -- ---------------------------------------------
 -- Non-argument types receiving arguments
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_int_with_args_is_invalid
+CREATE OR ALTER PROCEDURE sstr.parse_type_int_with_args_is_invalid
 AS
 BEGIN
     DECLARE @r TABLE (is_valid bit, validation_error nvarchar(max));
     INSERT @r SELECT is_valid, validation_error
-               FROM $(SchemaName).parse_column_type(N'int(11)');
+               FROM $(SchemaName).parse_type(N'int(11)');
 
     DECLARE @valid bit, @err nvarchar(max);
     SELECT @valid = is_valid, @err = validation_error FROM @r;
@@ -530,12 +530,12 @@ GO
 -- ---------------------------------------------
 -- Whitespace / case / brackets
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_leading_trailing_whitespace
+CREATE OR ALTER PROCEDURE sstr.parse_type_leading_trailing_whitespace
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit);
     INSERT @r SELECT type_name, char_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'   varchar(50)   ');
+               FROM $(SchemaName).parse_type(N'   varchar(50)   ');
 
     DECLARE @tn nvarchar(500), @cl int, @valid bit;
     SELECT @tn = type_name, @cl = char_length, @valid = is_valid FROM @r;
@@ -546,12 +546,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_uppercase
+CREATE OR ALTER PROCEDURE sstr.parse_type_uppercase
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit);
     INSERT @r SELECT type_name, char_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'VARCHAR(75)');
+               FROM $(SchemaName).parse_type(N'VARCHAR(75)');
 
     DECLARE @tn nvarchar(500), @cl int, @valid bit;
     SELECT @tn = type_name, @cl = char_length, @valid = is_valid FROM @r;
@@ -562,12 +562,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_internal_spaces
+CREATE OR ALTER PROCEDURE sstr.parse_type_internal_spaces
 AS
 BEGIN
     DECLARE @r TABLE (precision int, scale int, is_valid bit);
     INSERT @r SELECT precision, scale, is_valid
-               FROM $(SchemaName).parse_column_type(N'decimal( 18 , 2 )');
+               FROM $(SchemaName).parse_type(N'decimal( 18 , 2 )');
 
     DECLARE @p int, @s int, @valid bit;
     SELECT @p = precision, @s = scale, @valid = is_valid FROM @r;
@@ -578,12 +578,12 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_bracketed_base
+CREATE OR ALTER PROCEDURE sstr.parse_type_bracketed_base
 AS
 BEGIN
     DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit);
     INSERT @r SELECT type_name, char_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'[varchar](25)');
+               FROM $(SchemaName).parse_type(N'[varchar](25)');
 
     DECLARE @tn nvarchar(500), @cl int, @valid bit;
     SELECT @tn = type_name, @cl = char_length, @valid = is_valid FROM @r;
@@ -597,33 +597,35 @@ GO
 -- ---------------------------------------------
 -- NULL / NOT NULL suffix stripping
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_strips_trailing_not_null
+CREATE OR ALTER PROCEDURE sstr.parse_type_strips_trailing_not_null
 AS
 BEGIN
-    DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit);
-    INSERT @r SELECT type_name, char_length, is_valid
-               FROM $(SchemaName).parse_column_type(N'varchar(100) NOT NULL');
+    DECLARE @r TABLE (type_name nvarchar(500), char_length int, is_valid bit, is_nullable bit);
+    INSERT @r SELECT type_name, char_length, is_valid, is_nullable
+               FROM $(SchemaName).parse_type(N'varchar(100)');
 
-    DECLARE @tn nvarchar(500), @cl int, @valid bit;
-    SELECT @tn = type_name, @cl = char_length, @valid = is_valid FROM @r;
+    DECLARE @tn nvarchar(500), @cl int, @valid bit, @nullable bit;
+    SELECT @tn = type_name, @cl = char_length, @valid = is_valid, @nullable = is_nullable FROM @r;
 
     EXEC Assert.Equals    @valid, 1;
+    EXEC Assert.Equals    @nullable, 0;
     EXEC Assert.MaxEquals @tn,    N'varchar';
     EXEC Assert.Equals    @cl,    100;
 END
 GO
 
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_strips_trailing_null
+CREATE OR ALTER PROCEDURE sstr.parse_type_strips_trailing_null
 AS
 BEGIN
-    DECLARE @r TABLE (type_name nvarchar(500), is_valid bit);
-    INSERT @r SELECT type_name, is_valid
-               FROM $(SchemaName).parse_column_type(N'int NULL');
+    DECLARE @r TABLE (type_name nvarchar(500), is_valid bit, is_nullable bit);
+    INSERT @r SELECT type_name, is_valid, is_nullable
+               FROM $(SchemaName).parse_type(N'int?');
 
-    DECLARE @tn nvarchar(500), @valid bit;
-    SELECT @tn = type_name, @valid = is_valid FROM @r;
+    DECLARE @tn nvarchar(500), @valid bit, @nullable bit;
+    SELECT @tn = type_name, @valid = is_valid, @nullable = is_nullable FROM @r;
 
     EXEC Assert.Equals    @valid, 1;
+    EXEC Assert.Equals    @nullable, 1;
     EXEC Assert.MaxEquals @tn,    N'int';
 END
 GO
@@ -631,7 +633,7 @@ GO
 -- ---------------------------------------------
 -- System type ids (spot-check the family mapping)
 -- ---------------------------------------------
-CREATE OR ALTER PROCEDURE sstr.parse_column_type_system_type_ids_spot_check
+CREATE OR ALTER PROCEDURE sstr.parse_type_system_type_ids_spot_check
 AS
 BEGIN
     DECLARE @cases TABLE (input nvarchar(200), expected_sysid int);
@@ -661,7 +663,7 @@ BEGIN
     BEGIN
         DECLARE @r TABLE (system_type_id int, is_valid bit);
         INSERT @r SELECT system_type_id, is_valid
-                   FROM $(SchemaName).parse_column_type(@input);
+                   FROM $(SchemaName).parse_type(@input);
 
         SET @actual = NULL;
         SELECT @actual = system_type_id FROM @r;
