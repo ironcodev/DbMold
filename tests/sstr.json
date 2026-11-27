@@ -24,6 +24,6 @@
     "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" },
     "is_decimal": { "skip": true },
     "is_integer": { "skip": true },
-    "_create_table_parse_spec.test": { "skip": true }
+    "_create_table_parse_spec.test": { "skip": false }
   }
 }
