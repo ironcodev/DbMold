@@ -112,6 +112,7 @@ return
         [db]                              = p.[db],
         [schema_name]                     = p.[schema],
         [table_name]                      = p.[table],
+        [original_column_name]            = p.[column],
         [column_name]                     = c.name,
         [column_id]                       = c.column_id,
         [type_name]                       = t.name,

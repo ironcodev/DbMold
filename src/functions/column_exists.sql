@@ -18,16 +18,20 @@ CREATE OR ALTER FUNCTION $(SchemaName).column_exists
 RETURNS bit
 AS
 BEGIN
-    DECLARE @object_id      int,
-            @column_id      int,
-            @db             sysname,
-            @table          sysname;
+    DECLARE @object_id              int,
+            @column_id              int,
+            @db                     sysname,
+            @table                  sysname,
+            @column_name            sysname,
+            @original_column_name   sysname;
 
     SELECT TOP(1)
-        @object_id      = p.[object_id],
-        @db             = p.[db],
-        @table          = p.[table_name],
-        @column_id      = p.[column_id]
+        @object_id              = p.[object_id],
+        @db                     = p.[db],
+        @table                  = p.[table_name],
+        @column_id              = p.[column_id],
+        @column_name            = p.[column_name],
+        @original_column_name   = p.[original_column_name]
     FROM $(SchemaName).column_info(@column) p;
 
     -- Current database only
@@ -35,7 +39,12 @@ BEGIN
         RETURN 0;
 
     -- Object and column must exist
-    IF @object_id IS NULL OR @column_id IS NULL
+    IF @object_id IS NULL
+        OR @original_column_name IS NULL
+        OR @column_name IS NULL
+        OR @column_name <> @original_column_name
+        OR datalength(@column_name) <> datalength(@original_column_name)
+        OR @column_id IS NULL
         RETURN 0;
 
     -- For temp tables, parse_column_name returns schema = NULL and

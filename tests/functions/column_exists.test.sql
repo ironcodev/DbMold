@@ -190,17 +190,34 @@ BEGIN
 END
 GO
 
--- 16. Leading/trailing whitespace is trimmed
-CREATE OR ALTER PROCEDURE sstr.column_exists_should_trim_whitespace
+-- 16. Leading/trailing whitespace should not be trimmed
+CREATE OR ALTER PROCEDURE sstr.column_exists_should_not_trim_whitespace
 AS
 BEGIN
-    IF OBJECT_ID('dbo.__sstr_test_tbl', 'U') IS NOT NULL DROP TABLE dbo.__sstr_test_tbl;
-    CREATE TABLE dbo.__sstr_test_tbl (Id int);
+    IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N' mo')
+        EXEC(N'CREATE SCHEMA [ mo]');
 
-    DECLARE @result bit = $(SchemaName).column_exists('  dbo.__sstr_test_tbl.Id  ');
-    EXEC Assert.Equals @result, 1;
+    IF OBJECT_ID(' mo.__sstr_test_tbl', 'U') IS NOT NULL
+        DROP TABLE [ mo].__sstr_test_tbl;
+    
+    CREATE TABLE [ mo].__sstr_test_tbl ([Id ] int);
 
-    DROP TABLE dbo.__sstr_test_tbl;
+    DECLARE @result bit
+    
+    SET @result = $(SchemaName).column_exists('mo.__sstr_test_tbl.Id ');
+    EXEC Assert.Equals @result, 0, 'trimmed schema';
+
+    SET @result = $(SchemaName).column_exists(' mo.__sstr_test_tbl.Id');
+    EXEC Assert.Equals @result, 0, 'trimmed column';
+
+    SET @result = $(SchemaName).column_exists('mo.__sstr_test_tbl.Id');
+    EXEC Assert.Equals @result, 0, 'trimmed schema and column';
+
+    SET @result = $(SchemaName).column_exists(' mo.__sstr_test_tbl.Id ');
+    EXEC Assert.Equals @result, 1, ' not trimmed schema or column';
+
+    DROP TABLE [ mo].__sstr_test_tbl;
+    DROP SCHEMA [ mo]
 END
 GO
 
