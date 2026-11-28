@@ -20,10 +20,10 @@
       "postScript": "./tests/functions/column_dependencies.postscript.sql"
     },
     "column_type_change": { "skip": true, "postScript": "./tests/functions/column_type_change.postscript.sql" },
-    "create_column": { "skip": true, "postScript": "./tests/procedures/create_column.postscript.sql" },
+    "create_column": { "skip": false, "postScript": "./tests/procedures/create_column.postscript.sql" },
     "create_default": { "skip": true, "postScript": "./tests/procedures/create_default.postscript.sql" },
     "is_decimal": { "skip": true },
     "is_integer": { "skip": true },
-    "_create_table_parse_spec.test": { "skip": false }
+    "_create_table_parse_spec.test": { "skip": true }
   }
 }

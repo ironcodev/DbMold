@@ -45,9 +45,6 @@
     "url": "https://github.com/ironcodev/DbMold/issues"
   },
   "homepage": "https://github.com/ironcodev/DbMold#readme",
-  "devDependencies": {
-    "sql-server-test-runner": "^2.2.1"
-  },
   "engines": {
     "node": ">=16"
   }
